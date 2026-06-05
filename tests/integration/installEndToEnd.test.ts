@@ -3,14 +3,14 @@ import { strict as assert } from "node:assert";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { opencode } from "../../src/agents/opencode.ts";
+import { OpenCodeFolders, opencode } from "../../src/agents/opencode.ts";
 import { installAll } from "../../src/core/install.ts";
 import { scan } from "../../src/core/registry.ts";
 import type { Item } from "../../src/types.ts";
 
 const FIXTURE_DIR = join(import.meta.dirname, "../fixtures/registry");
 
-test("install loop: scanning the fixture registry, picking all 4 items, and running installAll with 'yes-all' lands files in the right shape under <CWD>/.opencode/{command,agent,skill}", async () => {
+test("install loop: scanning the fixture registry, picking all 4 items, and running installAll with 'yes-all' lands files in the right shape under <CWD>/.opencode/{commands,agents,skills}", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "setup-devai-e2e-"));
   try {
     const items = scan(FIXTURE_DIR, opencode);
@@ -34,32 +34,32 @@ test("install loop: scanning the fixture registry, picking all 4 items, and runn
     }
 
     assert.equal(
-      existsSync(join(cwd, ".opencode", "command", "grill-me.md")),
+      existsSync(join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md")),
       true,
-      "command file should be installed at .opencode/command/grill-me.md",
+      "command file should be installed at .opencode/commands/grill-me.md",
     );
     assert.equal(
-      existsSync(join(cwd, ".opencode", "command", "minimal.md")),
+      existsSync(join(cwd, ".opencode", OpenCodeFolders.commands, "minimal.md")),
       true,
-      "command file should be installed at .opencode/command/minimal.md",
+      "command file should be installed at .opencode/commands/minimal.md",
     );
     assert.equal(
-      existsSync(join(cwd, ".opencode", "agent", "document-writer.md")),
+      existsSync(join(cwd, ".opencode", OpenCodeFolders.agents, "document-writer.md")),
       true,
-      "agent file should be installed at .opencode/agent/document-writer.md",
+      "agent file should be installed at .opencode/agents/document-writer.md",
     );
     assert.equal(
-      existsSync(join(cwd, ".opencode", "skill", "commit", "SKILL.md")),
+      existsSync(join(cwd, ".opencode", OpenCodeFolders.skills, "commit", "SKILL.md")),
       true,
-      "skill SKILL.md should be installed at .opencode/skill/commit/SKILL.md",
+      "skill SKILL.md should be installed at .opencode/skills/commit/SKILL.md",
     );
     assert.equal(
-      existsSync(join(cwd, ".opencode", "skill", "commit", "helpers.js")),
+      existsSync(join(cwd, ".opencode", OpenCodeFolders.skills, "commit", "helpers.js")),
       true,
       "skill supporting file should be copied recursively",
     );
     assert.equal(
-      readFileSync(join(cwd, ".opencode", "skill", "commit", "helpers.js"), "utf8"),
+      readFileSync(join(cwd, ".opencode", OpenCodeFolders.skills, "commit", "helpers.js"), "utf8"),
       "module.exports = { foo: 1 };\n",
     );
   } finally {
@@ -74,9 +74,9 @@ test("install loop: with a pre-existing target, the 'no' choice leaves the file 
     const grillMe = items.find((i) => i.id === "commands/grill-me");
     assert.ok(grillMe);
 
-    const target = join(cwd, ".opencode", "command", "grill-me.md");
+    const target = join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md");
     const { mkdirSync, writeFileSync } = await import("node:fs");
-    mkdirSync(join(cwd, ".opencode", "command"), { recursive: true });
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.commands), { recursive: true });
     writeFileSync(target, "EXISTING CONTENT\n");
 
     const fakePrompt = async (): Promise<"no" | null> => "no";

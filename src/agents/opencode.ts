@@ -1,18 +1,24 @@
 import type { AgentProfile } from "../types.js";
 
+export const OpenCodeFolders = {
+  skills: "skills",
+  commands: "commands",
+  agents: "agents",
+} as const;
+
 export const opencode: AgentProfile = {
   id: "opencode",
   displayName: "OpenCode",
   registry: {
-    commandDir: "commands",
-    agentDir: "agents",
-    skillDir: "skills",
+    commandDir: OpenCodeFolders.commands,
+    agentDir: OpenCodeFolders.agents,
+    skillDir: OpenCodeFolders.skills,
   },
   install: {
     baseDir: ".opencode",
-    commandSubdir: "command",
-    agentSubdir: "agent",
-    skillSubdir: "skill",
+    commandSubdir: OpenCodeFolders.commands,
+    agentSubdir: OpenCodeFolders.agents,
+    skillSubdir: OpenCodeFolders.skills,
   },
   labels: {
     command: "Commands",

@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { opencode } from "../../src/agents/opencode.ts";
+import { OpenCodeFolders, opencode } from "../../src/agents/opencode.ts";
 import {
   _setFsOpsForTesting,
   collisionReport,
@@ -54,8 +54,8 @@ test("collisionReport: returns no paths and no items when no selections are prov
 test("collisionReport: detects a command whose target file already exists", () => {
   const cwd = mkCwd();
   try {
-    mkdirSync(join(cwd, ".opencode", "command"), { recursive: true });
-    const target = join(cwd, ".opencode", "command", "grill-me.md");
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.commands), { recursive: true });
+    const target = join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md");
     writeFileSync(target, "existing content\n");
     const grillMe = makeItem({ id: "commands/grill-me", type: "command", name: "grill-me" });
 
@@ -90,8 +90,8 @@ test("collisionReport: does not flag a command whose target file does not exist"
 test("collisionReport: detects an agent whose target file already exists", () => {
   const cwd = mkCwd();
   try {
-    mkdirSync(join(cwd, ".opencode", "agent"), { recursive: true });
-    const target = join(cwd, ".opencode", "agent", "document-writer.md");
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.agents), { recursive: true });
+    const target = join(cwd, ".opencode", OpenCodeFolders.agents, "document-writer.md");
     writeFileSync(target, "existing\n");
     const doc = makeItem({ id: "agents/document-writer", type: "agent", name: "document-writer" });
 
@@ -110,7 +110,7 @@ test("collisionReport: detects an agent whose target file already exists", () =>
 test("collisionReport: detects a skill whose target directory already exists", () => {
   const cwd = mkCwd();
   try {
-    const target = join(cwd, ".opencode", "skill", "commit");
+    const target = join(cwd, ".opencode", OpenCodeFolders.skills, "commit");
     mkdirSync(target, { recursive: true });
     writeFileSync(join(target, "SKILL.md"), "existing skill\n");
     const commit = makeItem({ id: "skills/commit", type: "skill", name: "commit" });
@@ -130,10 +130,10 @@ test("collisionReport: detects a skill whose target directory already exists", (
 test("collisionReport: with a mixed selection of all three types, only existing targets are reported", () => {
   const cwd = mkCwd();
   try {
-    const cmdTarget = join(cwd, ".opencode", "command", "grill-me.md");
-    const agentTarget = join(cwd, ".opencode", "agent", "document-writer.md");
-    mkdirSync(join(cwd, ".opencode", "command"), { recursive: true });
-    mkdirSync(join(cwd, ".opencode", "agent"), { recursive: true });
+    const cmdTarget = join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md");
+    const agentTarget = join(cwd, ".opencode", OpenCodeFolders.agents, "document-writer.md");
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.commands), { recursive: true });
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.agents), { recursive: true });
     writeFileSync(cmdTarget, "old grill-me\n");
     writeFileSync(agentTarget, "old document-writer\n");
 
@@ -172,7 +172,7 @@ test("installItem: copies a single file to its target path and returns 'installe
     const result = await installItem(grillMe, opencode, cwd, null);
 
     assert.deepEqual(result, { status: "installed" });
-    const target = join(cwd, ".opencode", "command", "grill-me.md");
+    const target = join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md");
     assert.equal(readFileSync(target, "utf8"), "fresh grill-me content\n");
   } finally {
     rmSync(cwd, { recursive: true, force: true });
@@ -197,7 +197,7 @@ test("installItem: returns 'skipped' with reason 'collision-declined' when choic
 
     assert.deepEqual(result, { status: "skipped", reason: "collision-declined" });
     assert.equal(
-      existsSync(join(cwd, ".opencode", "command", "grill-me.md")),
+      existsSync(join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md")),
       false,
       "no file should have been created when choice is 'no'",
     );
@@ -224,7 +224,7 @@ test("installItem: returns 'skipped' with reason 'collision-declined' when choic
 
     assert.deepEqual(result, { status: "skipped", reason: "collision-declined" });
     assert.equal(
-      existsSync(join(cwd, ".opencode", "command", "grill-me.md")),
+      existsSync(join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md")),
       false,
       "no file should have been created when choice is 'no-all'",
     );
@@ -256,7 +256,7 @@ test("installItem: copies a directory tree (skill with supporting files) to its 
     const result = await installItem(commit, opencode, cwd, null);
 
     assert.deepEqual(result, { status: "installed" });
-    const targetDir = join(cwd, ".opencode", "skill", "commit");
+    const targetDir = join(cwd, ".opencode", OpenCodeFolders.skills, "commit");
     assert.equal(
       readFileSync(join(targetDir, "SKILL.md"), "utf8"),
       "---\nname: commit\ndescription: A test skill\n---\n# commit\n",
@@ -292,7 +292,7 @@ test("installItem: creates the .opencode/<type>/ parent directory hierarchy when
     const result = await installItem(doc, opencode, cwd, null);
 
     assert.deepEqual(result, { status: "installed" });
-    const target = join(cwd, ".opencode", "agent", "document-writer.md");
+    const target = join(cwd, ".opencode", OpenCodeFolders.agents, "document-writer.md");
     assert.equal(existsSync(target), true);
     assert.equal(readFileSync(target, "utf8"), "agent content\n");
   } finally {
@@ -305,7 +305,7 @@ test("installItem: returns 'failed' with a descriptive reason when the target pa
   const cwd = mkCwd();
   const sourceDir = mkdtempSync(join(tmpdir(), "setup-devai-install-eacces-"));
   try {
-    const targetParent = join(cwd, ".opencode", "command");
+    const targetParent = join(cwd, ".opencode", OpenCodeFolders.commands);
     mkdirSync(targetParent, { recursive: true });
     chmodSync(targetParent, 0o555);
     const sourceFile = join(sourceDir, "grill-me.md");
@@ -324,7 +324,7 @@ test("installItem: returns 'failed' with a descriptive reason when the target pa
       assert.match(result.reason, /EACCES/);
     }
   } finally {
-    chmodSync(join(cwd, ".opencode", "command"), 0o755);
+    chmodSync(join(cwd, ".opencode", OpenCodeFolders.commands), 0o755);
     rmSync(cwd, { recursive: true, force: true });
     rmSync(sourceDir, { recursive: true, force: true });
   }
@@ -457,11 +457,11 @@ test("installAll: when no targets exist on disk, installs every item and never c
     assert.deepEqual(results[1], { status: "installed" });
     assert.equal(promptCalls, 0, "prompt should never be called when no targets exist on disk");
     assert.equal(
-      readFileSync(join(cwd, ".opencode", "command", "grill-me.md"), "utf8"),
+      readFileSync(join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md"), "utf8"),
       "cmd content\n",
     );
     assert.equal(
-      readFileSync(join(cwd, ".opencode", "agent", "document-writer.md"), "utf8"),
+      readFileSync(join(cwd, ".opencode", OpenCodeFolders.agents, "document-writer.md"), "utf8"),
       "agent content\n",
     );
   } finally {
@@ -474,8 +474,8 @@ test("installAll: when a target exists, calls the prompt once and overwrites whe
   const cwd = mkCwd();
   const sourceDir = mkdtempSync(join(tmpdir(), "setup-devai-installall-yes-"));
   try {
-    const target = join(cwd, ".opencode", "command", "grill-me.md");
-    mkdirSync(join(cwd, ".opencode", "command"), { recursive: true });
+    const target = join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md");
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.commands), { recursive: true });
     writeFileSync(target, "old content\n");
     const sourceFile = join(sourceDir, "grill-me.md");
     writeFileSync(sourceFile, "new content\n");
@@ -513,10 +513,10 @@ test("installAll: after the user picks 'yes-all', no further prompts are called 
   const cwd = mkCwd();
   const sourceDir = mkdtempSync(join(tmpdir(), "setup-devai-installall-yes-all-"));
   try {
-    const targetA = join(cwd, ".opencode", "command", "grill-me.md");
-    const targetB = join(cwd, ".opencode", "agent", "document-writer.md");
-    mkdirSync(join(cwd, ".opencode", "command"), { recursive: true });
-    mkdirSync(join(cwd, ".opencode", "agent"), { recursive: true });
+    const targetA = join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md");
+    const targetB = join(cwd, ".opencode", OpenCodeFolders.agents, "document-writer.md");
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.commands), { recursive: true });
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.agents), { recursive: true });
     writeFileSync(targetA, "old A\n");
     writeFileSync(targetB, "old B\n");
     const sourceA = join(sourceDir, "grill-me.md");
@@ -560,10 +560,10 @@ test("installAll: after the user picks 'no-all', all remaining items are skipped
   const cwd = mkCwd();
   const sourceDir = mkdtempSync(join(tmpdir(), "setup-devai-installall-no-all-"));
   try {
-    const targetA = join(cwd, ".opencode", "command", "grill-me.md");
-    const targetB = join(cwd, ".opencode", "agent", "document-writer.md");
-    mkdirSync(join(cwd, ".opencode", "command"), { recursive: true });
-    mkdirSync(join(cwd, ".opencode", "agent"), { recursive: true });
+    const targetA = join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md");
+    const targetB = join(cwd, ".opencode", OpenCodeFolders.agents, "document-writer.md");
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.commands), { recursive: true });
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.agents), { recursive: true });
     writeFileSync(targetA, "old A\n");
     writeFileSync(targetB, "old B\n");
     const sourceA = join(sourceDir, "grill-me.md");
@@ -611,10 +611,10 @@ test("installAll: 'no' on a single collision skips that item only and still prom
   const cwd = mkCwd();
   const sourceDir = mkdtempSync(join(tmpdir(), "setup-devai-installall-no-"));
   try {
-    const targetA = join(cwd, ".opencode", "command", "grill-me.md");
-    const targetB = join(cwd, ".opencode", "agent", "document-writer.md");
-    mkdirSync(join(cwd, ".opencode", "command"), { recursive: true });
-    mkdirSync(join(cwd, ".opencode", "agent"), { recursive: true });
+    const targetA = join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md");
+    const targetB = join(cwd, ".opencode", OpenCodeFolders.agents, "document-writer.md");
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.commands), { recursive: true });
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.agents), { recursive: true });
     writeFileSync(targetA, "old A\n");
     writeFileSync(targetB, "old B\n");
     const sourceA = join(sourceDir, "grill-me.md");
@@ -659,8 +659,8 @@ test("installAll: when the prompt returns null, throws 'User cancelled' and the 
   const cwd = mkCwd();
   const sourceDir = mkdtempSync(join(tmpdir(), "setup-devai-installall-cancel-"));
   try {
-    const target = join(cwd, ".opencode", "command", "grill-me.md");
-    mkdirSync(join(cwd, ".opencode", "command"), { recursive: true });
+    const target = join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md");
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.commands), { recursive: true });
     writeFileSync(target, "old\n");
     const sourceFile = join(sourceDir, "grill-me.md");
     writeFileSync(sourceFile, "new\n");
