@@ -1,0 +1,1 @@
+A random file in a directory without a SKILL.md.

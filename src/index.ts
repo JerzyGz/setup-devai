@@ -3,13 +3,13 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeCleanup } from "./core/cleanup.js";
-import { commandExists } from "./core/git.js";
+import * as git from "./core/git.js";
 import * as prompts from "./core/prompts.js";
 
 export async function main(): Promise<void> {
   const tempDir = mkdtempSync(join(tmpdir(), "setup-devai-"));
 
-  if (!commandExists("git")) {
+  if (!git.commandExists("git")) {
     process.stderr.write("Error: git is not installed or not in PATH.\n");
     process.exit(1);
   }
@@ -49,7 +49,7 @@ export async function main(): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, holdMs));
     } else {
       const registryUrl = await prompts.url();
-      console.log(registryUrl);
+      await git.cloneShallow(registryUrl, tempDir);
     }
     // further wizard steps land here in later slices
   } catch (err) {
