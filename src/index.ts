@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 import { mkdtempSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { opencode } from "./agents/opencode.js";
 import { makeCleanup } from "./core/cleanup.js";
 import * as git from "./core/git.js";
+import { HELP_TEXT } from "./core/help.js";
 import * as install from "./core/install.js";
 import * as prompts from "./core/prompts.js";
 import * as registry from "./core/registry.js";
 import type { ElementType, Item } from "./types.js";
+
+const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
 export interface MainPrompts {
   url: typeof prompts.url;
@@ -23,7 +27,19 @@ export interface MainDeps {
   prompts?: MainPrompts;
 }
 
-export async function main(deps: MainDeps = {}): Promise<void> {
+export async function main(
+  deps: MainDeps = {},
+  argv: string[] = process.argv.slice(2),
+): Promise<void> {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    process.stdout.write(`${HELP_TEXT}\n`);
+    return;
+  }
+  if (argv.includes("--version") || argv.includes("-V")) {
+    process.stdout.write(`${version}\n`);
+    return;
+  }
+
   const p: MainPrompts = {
     url: deps.prompts?.url ?? prompts.url,
     typeMenu: deps.prompts?.typeMenu ?? prompts.typeMenu,
