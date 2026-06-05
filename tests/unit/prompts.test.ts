@@ -2,6 +2,7 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import {
   collisionPrompt,
+  cropHint,
   itemMultiSelect,
   postInstallSummary,
   preInstallSummary,
@@ -27,6 +28,128 @@ function makeItem(partial: Partial<Item> & { id: string; type: Item["type"]; nam
     },
   };
 }
+
+test("cropHint: when the hint is shorter than the available budget, returns it unchanged with no ellipsis", () => {
+  const hint = "hello";
+  const result = cropHint(hint, 3, 80);
+  assert.equal(result, "hello");
+  assert.ok(!result.endsWith("…"), "no ellipsis should be appended for a short hint");
+});
+
+test("cropHint: when the hint exactly equals the available budget, returns it unchanged (no ellipsis)", () => {
+  const columns = 80;
+  const labelLength = 3;
+  const available = columns - labelLength - 6;
+  const hint = "x".repeat(available);
+  const result = cropHint(hint, labelLength, columns);
+  assert.equal(result, hint);
+  assert.ok(!result.endsWith("…"), "no ellipsis should be appended when the hint fits exactly");
+});
+
+test("cropHint: when the hint overflows the budget by one character, crops to the budget length and ends with a single ellipsis", () => {
+  const columns = 80;
+  const labelLength = 3;
+  const budget = columns - labelLength - 6;
+  const hint = "x".repeat(budget + 1);
+  const result = cropHint(hint, labelLength, columns);
+  assert.equal(result.length, budget, "result length should equal the available budget");
+  assert.ok(result.endsWith("…"), "result should end with the single-character ellipsis");
+});
+
+test("cropHint: when the hint is much longer than the budget, crops to the budget length and ends with a single ellipsis", () => {
+  const columns = 80;
+  const labelLength = 3;
+  const budget = columns - labelLength - 6;
+  const hint = "y".repeat(budget * 4);
+  const result = cropHint(hint, labelLength, columns);
+  assert.equal(result.length, budget, "result length should equal the available budget");
+  assert.ok(result.endsWith("…"), "result should end with the single-character ellipsis");
+  assert.ok(
+    result.startsWith("y".repeat(budget - 1)),
+    "result should be the budget-1 prefix of the original hint",
+  );
+});
+
+test("cropHint: when the terminal is very narrow relative to the label, returns an empty hint", () => {
+  const columns = 10;
+  const labelLength = "verylongname".length;
+  const result = cropHint(
+    "a long description of the item that should be cropped",
+    labelLength,
+    columns,
+  );
+  assert.equal(result, "");
+});
+
+test("cropHint: when the available budget is exactly 1, returns an empty hint", () => {
+  const columns = 10;
+  const labelLength = 3;
+  assert.equal(columns - labelLength - 6, 1, "precondition: budget should be 1");
+  const result = cropHint("any hint at all will not fit", labelLength, columns);
+  assert.equal(result, "");
+});
+
+test("cropHint: when truncated, ends with the single-character ellipsis (U+2026), never with three dots", () => {
+  const result = cropHint(
+    "a very long description that should absolutely be cropped down to a single line when the terminal is narrow",
+    3,
+    80,
+  );
+  const lastChar = result[result.length - 1];
+  assert.equal(lastChar, "…", "last character should be the single-character ellipsis");
+  assert.equal(lastChar, "\u2026", "ellipsis should be U+2026");
+  assert.ok(!result.endsWith("..."), "result should not end with three dots");
+});
+
+test("cropHint: is pure — repeated calls with the same inputs return the same output", () => {
+  const hint = "a deterministic description that gets cropped the same way every time, always";
+  const a = cropHint(hint, 5, 80);
+  const b = cropHint(hint, 5, 80);
+  const c = cropHint(hint, 5, 80);
+  assert.equal(a, b);
+  assert.equal(b, c);
+});
+
+test("itemMultiSelect: passes each item's description through cropHint, so long descriptions become a single-line hint", async () => {
+  const foo = makeItem({
+    id: "commands/foo",
+    type: "command",
+    name: "foo",
+    description: "z".repeat(200),
+  });
+  let captured: { options: Array<{ value: unknown; label?: string; hint?: string }> } | undefined;
+  const fakeMultiselect = async (opts: unknown): Promise<unknown> => {
+    captured = opts as { options: Array<{ value: unknown; label?: string; hint?: string }> };
+    return [foo];
+  };
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  const originalColumns = Object.getOwnPropertyDescriptor(process.stdout, "columns");
+  Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+  try {
+    await itemMultiSelect([foo], "command", opencode, [], {
+      multiselect: fakeMultiselect as never,
+      isCancel: fakeIsCancel,
+    });
+  } finally {
+    if (originalColumns) {
+      Object.defineProperty(process.stdout, "columns", originalColumns);
+    } else {
+      delete (process.stdout as unknown as { columns?: number }).columns;
+    }
+  }
+  const fooOpt = captured?.options.find((o) => o.value === foo);
+  const budget = 80 - foo.name.length - 6;
+  assert.equal(
+    fooOpt?.hint?.length,
+    budget,
+    "hint should be cropped to the available budget for the current terminal width",
+  );
+  assert.ok(
+    fooOpt?.hint?.endsWith("…"),
+    "cropped hint should end with the single-character ellipsis",
+  );
+  assert.equal(fooOpt?.label, "foo", "label should be the unmodified item name");
+});
 
 test("url: returns the trimmed text input from @clack/prompts.text", async () => {
   const fakeText = async (): Promise<string | symbol> => "  https://github.com/user/repo  ";

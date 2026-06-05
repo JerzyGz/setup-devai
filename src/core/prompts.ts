@@ -4,6 +4,13 @@ import type { CollisionReport, InstallResult } from "./install.js";
 
 const REGISTRY_URL_PLACEHOLDER = "https://github.com/you/your-registry";
 
+export function cropHint(hint: string, labelLength: number, columns: number): string {
+  const available = columns - labelLength - 6;
+  if (available >= hint.length) return hint;
+  if (available <= 1) return "";
+  return hint.slice(0, available - 1) + "…";
+}
+
 export interface UrlPromptDeps {
   text: (opts: {
     message: string;
@@ -180,7 +187,7 @@ export async function itemMultiSelect(
     options: typeItems.map((item) => ({
       value: item,
       label: item.name,
-      hint: item.description,
+      hint: cropHint(item.description, item.name.length, process.stdout.columns ?? 80),
     })),
     initialValues,
     required: false,
