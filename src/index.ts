@@ -2,9 +2,11 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { opencode } from "./agents/opencode.js";
 import { makeCleanup } from "./core/cleanup.js";
 import * as git from "./core/git.js";
 import * as prompts from "./core/prompts.js";
+import * as registry from "./core/registry.js";
 
 export async function main(): Promise<void> {
   const tempDir = mkdtempSync(join(tmpdir(), "setup-devai-"));
@@ -50,6 +52,8 @@ export async function main(): Promise<void> {
     } else {
       const registryUrl = await prompts.url();
       await git.cloneShallow(registryUrl, tempDir);
+      const items = registry.scan(tempDir, opencode);
+      process.stdout.write(`Scanned ${items.length} items\n`);
     }
     // further wizard steps land here in later slices
   } catch (err) {
