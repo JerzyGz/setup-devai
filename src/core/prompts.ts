@@ -1,4 +1,5 @@
 import * as clack from "@clack/prompts";
+import type { AgentProfile, ElementType, Item } from "../types.js";
 
 const REGISTRY_URL_PLACEHOLDER = "https://github.com/you/your-registry";
 
@@ -24,4 +25,130 @@ export async function url(deps: UrlPromptDeps = defaultDeps): Promise<string> {
     const trimmed = value.trim();
     if (trimmed.length > 0) return trimmed;
   }
+}
+
+type TypeMenuValue = ElementType | "install" | "__divider__";
+
+export interface TypeMenuDeps {
+  select: typeof clack.select;
+  isCancel: (value: unknown) => value is symbol;
+}
+
+const defaultTypeMenuDeps: TypeMenuDeps = {
+  select: clack.select,
+  isCancel: clack.isCancel,
+};
+
+const TYPE_ORDER: ElementType[] = ["command", "agent", "skill"];
+
+export async function typeMenu(
+  items: Item[],
+  profile: AgentProfile,
+  deps: TypeMenuDeps = defaultTypeMenuDeps,
+): Promise<ElementType | "install"> {
+  const typeOptions: Array<{
+    value: TypeMenuValue;
+    label: string;
+    hint?: string;
+    disabled?: boolean;
+  }> = [];
+  for (const type of TYPE_ORDER) {
+    const count = items.filter((i) => i.type === type).length;
+    if (count > 0) {
+      typeOptions.push({
+        value: type,
+        label: `${profile.labels[type]} (${count})`,
+        hint: `${count} available`,
+      });
+    }
+  }
+  const options: Array<{
+    value: TypeMenuValue;
+    label: string;
+    hint?: string;
+    disabled?: boolean;
+  }> = [
+    ...typeOptions,
+    { value: "__divider__", label: "──────────────", disabled: true },
+    { value: "install", label: "[ Install ]" },
+  ];
+  const result = await deps.select<TypeMenuValue>({
+    message: "Choose a type",
+    options,
+  });
+  if (deps.isCancel(result)) throw new Error("User cancelled");
+  if (result === "__divider__") throw new Error("User cancelled");
+  return result;
+}
+
+export interface ItemMultiSelectDeps {
+  multiselect: typeof clack.multiselect;
+  isCancel: (value: unknown) => value is symbol;
+}
+
+const defaultItemMultiSelectDeps: ItemMultiSelectDeps = {
+  multiselect: clack.multiselect,
+  isCancel: clack.isCancel,
+};
+
+export async function itemMultiSelect(
+  items: Item[],
+  type: ElementType,
+  _profile: AgentProfile,
+  priorSelections: Item[],
+  deps: ItemMultiSelectDeps = defaultItemMultiSelectDeps,
+): Promise<Item[]> {
+  const typeItems = items.filter((i) => i.type === type);
+  const itemsById = new Map(items.map((i) => [i.id, i]));
+  const initialValues: Item[] = [];
+  const seenIds = new Set<string>();
+  const warnedTargetIds = new Set<string>();
+  const queue: Item[] = priorSelections.filter((i) => i.type === type);
+  for (const seed of queue) {
+    if (!seenIds.has(seed.id)) {
+      seenIds.add(seed.id);
+      initialValues.push(seed);
+    }
+  }
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) break;
+    for (const requiredId of current.frontmatter.requires) {
+      const target = itemsById.get(requiredId);
+      if (!target) {
+        if (!warnedTargetIds.has(requiredId)) {
+          warnedTargetIds.add(requiredId);
+          process.stderr.write(
+            `Warning: ${current.name} requires ${requiredId} (unknown, not auto-resolved)\n`,
+          );
+        }
+        continue;
+      }
+      if (target.type !== type) {
+        if (!warnedTargetIds.has(requiredId)) {
+          warnedTargetIds.add(requiredId);
+          process.stderr.write(
+            `Warning: ${current.name} requires ${requiredId} (cross-type, not auto-resolved)\n`,
+          );
+        }
+        continue;
+      }
+      if (seenIds.has(target.id)) continue;
+      seenIds.add(target.id);
+      initialValues.push(target);
+      queue.push(target);
+    }
+  }
+  const result = await deps.multiselect<Item>({
+    message: "Select items",
+    options: typeItems.map((item) => ({
+      value: item,
+      label: item.name,
+      hint: item.description,
+    })),
+    initialValues,
+    required: false,
+  });
+  if (deps.isCancel(result)) throw new Error("User cancelled");
+  return result;
 }
