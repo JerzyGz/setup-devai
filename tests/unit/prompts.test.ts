@@ -348,7 +348,6 @@ test("itemMultiSelect: requires cycle does not infinite-loop", async () => {
 function captureStderr(): { restore: () => void; output: () => string } {
   const original = process.stderr.write.bind(process.stderr);
   const chunks: string[] = [];
-  // @ts-expect-error: overriding for test
   process.stderr.write = (chunk: string | Uint8Array): boolean => {
     chunks.push(typeof chunk === "string" ? chunk : chunk.toString());
     return true;

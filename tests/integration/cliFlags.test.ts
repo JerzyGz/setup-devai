@@ -60,7 +60,6 @@ function makeStubPrompts(flags: StubFlags): {
 function captureStdout(): { restore: () => void; output: () => string } {
   const original = process.stdout.write.bind(process.stdout);
   const chunks: string[] = [];
-  // @ts-expect-error: overriding for test
   process.stdout.write = (chunk: string | Uint8Array): boolean => {
     chunks.push(typeof chunk === "string" ? chunk : chunk.toString());
     return true;

@@ -34,7 +34,6 @@ test("cleanupSync: second call on the same closure is a no-op", () => {
 test("cleanupSync: emits a stderr warning and does not throw when rmSync fails", () => {
   const originalWrite = process.stderr.write.bind(process.stderr);
   const captured: string[] = [];
-  // @ts-expect-error: overriding for test
   process.stderr.write = (chunk: string | Uint8Array): boolean => {
     captured.push(typeof chunk === "string" ? chunk : chunk.toString());
     return true;
