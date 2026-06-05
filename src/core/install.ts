@@ -27,6 +27,13 @@ export function _setFsOpsForTesting(ops: Partial<FsOps>): void {
   fsOps = { ...defaultFsOps, ...ops };
 }
 
+/**
+ * Compute the absolute on-disk path an `item` would be installed to
+ * under the profile's install base directory.
+ *
+ * Commands and agents are written as a single `.md` file; skills are
+ * written as a directory whose name matches the item's name.
+ */
 function computeTarget(item: Item, profile: AgentProfile, cwd: string): string {
   const base = join(cwd, profile.install.baseDir);
   switch (item.type) {
@@ -39,6 +46,20 @@ function computeTarget(item: Item, profile: AgentProfile, cwd: string): string {
   }
 }
 
+/**
+ * Scan a selection of items and report which ones would overwrite an
+ * existing file or directory at their target install path.
+ *
+ * The report is a pure read-only inspection: nothing is created or
+ * modified. It is intended to be shown to the user before any install
+ * actually runs.
+ *
+ * @param items - Items the user is about to install
+ * @param profile - Agent profile (provides install paths)
+ * @param cwd - Current working directory (the install root)
+ * @returns The list of colliding paths, the colliding items, and a
+ *          per-type breakdown for the summary screen
+ */
 export function collisionReport(
   items: Item[],
   profile: AgentProfile,
@@ -60,6 +81,23 @@ export function collisionReport(
 
 const HANDLED_ERROR_CODES = new Set(["EACCES", "EPERM", "ENOSPC"]);
 
+/**
+ * Install a single item to its target path.
+ *
+ * - If the user already chose `"no"` or `"no-all"` for this item, the
+ *   call is a no-op and returns `"skipped"`.
+ * - Otherwise the parent directory is created (recursive) and the item
+ *   is copied: directories recursively, single files as-is.
+ * - Known transient errors (EACCES, EPERM, ENOSPC) are converted to
+ *   a structured `"failed"` result so the caller can render them; any
+ *   other error is re-thrown.
+ *
+ * @param item - The item to install
+ * @param profile - Agent profile (provides install paths)
+ * @param cwd - Current working directory
+ * @param choice - Pre-resolved collision choice, or null if no collision
+ * @returns A structured result describing what happened
+ */
 export async function installItem(
   item: Item,
   profile: AgentProfile,
@@ -92,6 +130,21 @@ export async function installItem(
 
 export type CollisionPrompt = (item: Item, existingPath: string) => Promise<CollisionChoice | null>;
 
+/**
+ * Install every item in `items` in order, handling collisions.
+ *
+ * A `"yes-all"` or `"no-all"` answer from the prompt latches a bulk
+ * choice that applies to every remaining collision without further
+ * prompting. A `null` answer from the prompt (user cancel) is converted
+ * into a thrown `Error("User cancelled")` so the caller can abort the
+ * whole run cleanly.
+ *
+ * @param items - Items to install, in user-confirmed order
+ * @param profile - Agent profile
+ * @param cwd - Current working directory
+ * @param prompt - Called only when a target path already exists
+ * @returns One structured result per input item, in the same order
+ */
 export async function installAll(
   items: Item[],
   profile: AgentProfile,

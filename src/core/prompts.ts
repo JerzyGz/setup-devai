@@ -14,6 +14,12 @@ const defaultDeps: UrlPromptDeps = {
   isCancel: clack.isCancel,
 };
 
+/**
+ * Prompt the user for the registry Git URL.
+ *
+ * Loops until the user submits a non-empty (after trim) value. Throws
+ * `"User cancelled"` if the user cancels via Ctrl+C.
+ */
 export async function url(deps: UrlPromptDeps = defaultDeps): Promise<string> {
   for (;;) {
     const value = await deps.text({
@@ -42,6 +48,14 @@ const defaultTypeMenuDeps: TypeMenuDeps = {
 
 const TYPE_ORDER: ElementType[] = ["command", "agent", "skill"];
 
+/**
+ * Show a single-select menu of element types (command, agent, skill),
+ * followed by a non-selectable divider and an `[ Install ]` action.
+ *
+ * Types with zero available items in the scanned registry are hidden.
+ * The locked order is `command`, `agent`, `skill`. Throws
+ * `"User cancelled"` on cancel.
+ */
 export async function typeMenu(
   items: Item[],
   profile: AgentProfile,
@@ -92,6 +106,16 @@ const defaultItemMultiSelectDeps: ItemMultiSelectDeps = {
   isCancel: clack.isCancel,
 };
 
+/**
+ * Show a multi-select prompt for the items of a single type.
+ *
+ * Initial pre-checks come from `priorSelections` and the transitive
+ * `requires` graph within that type. Cross-type and unknown `requires`
+ * targets are skipped (with a one-time stderr warning per target), as
+ * this prompt is single-type. The user's returned subset is returned
+ * as-is (a required item can be un-checked if the user really wants to).
+ * Throws `"User cancelled"` on cancel.
+ */
 export async function itemMultiSelect(
   items: Item[],
   type: ElementType,
@@ -161,6 +185,17 @@ export interface PreInstallSummaryDeps {
   isCancel?: (v: unknown) => v is symbol;
 }
 
+/**
+ * Render the pre-install summary screen and wait for the user to
+ * press Enter to continue (or Ctrl+C to abort).
+ *
+ * Sections printed, in order:
+ * 1. Target install directory
+ * 2. Selected items, grouped by type in canonical order
+ * 3. Collision count and the exact colliding paths
+ *
+ * Throws `"User cancelled"` if the user aborts at the Enter prompt.
+ */
 export async function preInstallSummary(
   selections: Item[],
   collisions: CollisionReport,
@@ -200,6 +235,16 @@ const defaultCollisionPromptDeps: CollisionPromptDeps = {
   isCancel: clack.isCancel,
 };
 
+/**
+ * Ask the user how to handle a single target-path collision.
+ *
+ * Returns one of:
+ * - `"yes"`     overwrite this item
+ * - `"no"`      skip this item
+ * - `"yes-all"` overwrite this and all remaining collisions
+ * - `"no-all"`  skip this and all remaining collisions
+ * - `null`      the user cancelled the prompt
+ */
 export async function collisionPrompt(
   item: Item,
   existingPath: string,
@@ -222,6 +267,11 @@ export interface PostInstallSummaryDeps {
   log?: typeof clack.log;
 }
 
+/**
+ * Render the post-install summary: total installed, per-type installed
+ * counts (in canonical order), skipped count, and failed count. Emits
+ * an `log.error` line iff at least one item failed.
+ */
 export function postInstallSummary(
   items: Item[],
   results: InstallResult[],

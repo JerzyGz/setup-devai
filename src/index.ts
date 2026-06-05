@@ -27,6 +27,23 @@ export interface MainDeps {
   prompts?: MainPrompts;
 }
 
+/**
+ * Main entry point for the setup-devai CLI wizard.
+ *
+ * Flow:
+ * 1. Clone the registry into a temp directory
+ * 2. Scan for available commands, agents, and skills
+ * 3. Present a type menu (command/agent/skill to install)
+ * 4. Allow multi-select of items within the chosen type
+ * 5. Track prior selections across type-switches
+ * 6. On install, run collision detection
+ * 7. Show pre-install summary with collision report
+ * 8. Install all selected items, prompting for collisions
+ * 9. Show post-install summary
+ *
+ * @param deps - Optional injected prompt dependencies for testing
+ * @param argv - CLI arguments (defaults to process.argv.slice(2))
+ */
 export async function main(
   deps: MainDeps = {},
   argv: string[] = process.argv.slice(2),

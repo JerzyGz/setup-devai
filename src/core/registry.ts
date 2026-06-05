@@ -3,6 +3,11 @@ import { join } from "node:path";
 import type { AgentProfile, ElementType, Frontmatter, Item } from "../types.js";
 import { parseFrontmatter } from "./frontmatter.js";
 
+/**
+ * List the `.md` files in a directory, ignoring subdirectories and
+ * anything that does not end in `.md`. Returns `[]` if the directory
+ * does not exist (missing type dirs are treated as empty, not errors).
+ */
 function readMarkdownDir(dir: string): string[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
@@ -10,13 +15,30 @@ function readMarkdownDir(dir: string): string[] {
     .filter((entry) => statSync(join(dir, entry)).isFile());
 }
 
+// Strip a single trailing ".md" extension to derive a fallback item name from a filename.
+const MD_EXTENSION_RE = /\.md$/;
+
+/**
+ * Derive a fallback item name from a `.md` filename by stripping the
+ * extension. Used when the frontmatter does not supply its own `name`.
+ */
 function nameFromFile(file: string): string {
-  return file.replace(/\.md$/, "");
+  return file.replace(MD_EXTENSION_RE, "");
 }
 
+/**
+ * Heuristic check for a clearly-malformed frontmatter block: the file
+ * begins with a `---` line but has no matching closing `---` line. We
+ * surface this as a warning and keep going with fallback values rather
+ * than failing the scan, because most malformed blocks still parse to
+ * something useful via `parseFrontmatter`.
+ */
 function isMalformedFrontmatter(content: string): boolean {
+  // Opening fence: "---" at the very start of the file, followed by a line break.
   if (!/^---\r?\n/.test(content)) return false;
   const rest = content.replace(/^---\r?\n/, "");
+  // Closing fence: "---" on its own line, either at start of string or after a newline,
+  // followed by another line break or end of input.
   return !/(^|\r?\n)---(\r?\n|$)/.test(rest);
 }
 
@@ -50,6 +72,12 @@ function buildItem(opts: {
   };
 }
 
+/**
+ * Scan a flat directory of `.md` files and emit one `Item` per file.
+ *
+ * Used for command and agent directories. The item `type` and `idPrefix`
+ * are passed in because callers may want to override either.
+ */
 function scanFiles(dir: string, type: ElementType, idPrefix: string): Item[] {
   return readMarkdownDir(dir).map((file) => {
     const filePath = join(dir, file);
@@ -64,6 +92,11 @@ function scanFiles(dir: string, type: ElementType, idPrefix: string): Item[] {
   });
 }
 
+/**
+ * Scan a directory of skill subdirectories, where each valid skill
+ * directory contains a `SKILL.md` file. Subdirectories without a
+ * `SKILL.md` are skipped with a stderr warning.
+ */
 function scanSkillDirs(dir: string, idPrefix: string): Item[] {
   if (!existsSync(dir)) return [];
   const items: Item[] = [];
@@ -89,6 +122,18 @@ function scanSkillDirs(dir: string, idPrefix: string): Item[] {
   return items;
 }
 
+/**
+ * Scan a registry checkout for all available items.
+ *
+ * Dispatches per-type: commands and agents are flat `.md` files in
+ * their respective directories, while skills are subdirectories
+ * containing a `SKILL.md`. Results are concatenated in canonical
+ * order: commands, agents, skills.
+ *
+ * @param rootDir - Path to the cloned registry root
+ * @param profile - Agent profile (provides per-type directory names)
+ * @returns All discoverable items, unsorted within each type
+ */
 export function scan(rootDir: string, profile: AgentProfile): Item[] {
   return [
     ...scanFiles(
