@@ -187,3 +187,33 @@ export async function preInstallSummary(
   const result = await cancel({ message: "Press Enter to continue, Ctrl+C to abort." });
   if (isCancel(result)) throw new Error("User cancelled");
 }
+
+export type CollisionChoice = "yes" | "no" | "yes-all" | "no-all";
+
+export interface CollisionPromptDeps {
+  select: typeof clack.select;
+  isCancel: (v: unknown) => v is symbol;
+}
+
+const defaultCollisionPromptDeps: CollisionPromptDeps = {
+  select: clack.select,
+  isCancel: clack.isCancel,
+};
+
+export async function collisionPrompt(
+  item: Item,
+  existingPath: string,
+  deps: CollisionPromptDeps = defaultCollisionPromptDeps,
+): Promise<CollisionChoice | null> {
+  const result = await deps.select<CollisionChoice>({
+    message: `${item.name} already exists at ${existingPath}`,
+    options: [
+      { value: "yes", label: "Yes", hint: "Overwrite this item" },
+      { value: "no", label: "No", hint: "Skip this item" },
+      { value: "yes-all", label: "Yes to all", hint: "Overwrite all remaining collisions" },
+      { value: "no-all", label: "No to all", hint: "Skip all remaining collisions" },
+    ],
+  });
+  if (deps.isCancel(result)) return null;
+  return result;
+}

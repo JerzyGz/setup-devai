@@ -75,7 +75,14 @@ export async function main(): Promise<void> {
       const targetPath = resolve(cwd, opencode.install.baseDir);
       const collisions = install.collisionReport([...selections], opencode, cwd);
       await prompts.preInstallSummary([...selections], collisions, targetPath, opencode);
-      process.stdout.write(`Collision report: ${collisions.paths.length}\n`);
+      const results = await install.installAll(
+        [...selections],
+        opencode,
+        cwd,
+        (item, existingPath) => prompts.collisionPrompt(item, existingPath),
+      );
+      const installed = results.filter((r) => r.status === "installed").length;
+      process.stdout.write(`Installed ${installed} items\n`);
     }
     // further wizard steps land here in later slices
   } catch (err) {

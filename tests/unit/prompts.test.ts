@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { itemMultiSelect, preInstallSummary, typeMenu, url } from "../../src/core/prompts.ts";
+import {
+  collisionPrompt,
+  itemMultiSelect,
+  preInstallSummary,
+  typeMenu,
+  url,
+} from "../../src/core/prompts.ts";
 import { opencode } from "../../src/agents/opencode.ts";
 import type { Item } from "../../src/types.ts";
 
@@ -584,4 +590,107 @@ test("preInstallSummary: throws 'User cancelled' when the user cancels the Enter
       ),
     /User cancelled/,
   );
+});
+
+test("collisionPrompt: returns the 'yes' value when the mocked select returns 'yes'", async () => {
+  const grillMe = makeItem({ id: "commands/grill-me", type: "command", name: "grill-me" });
+  const fakeSelect = async (_opts: unknown): Promise<unknown> => "yes";
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  const result = await collisionPrompt(grillMe, "/abs/target/.opencode/command/grill-me.md", {
+    select: fakeSelect as never,
+    isCancel: fakeIsCancel,
+  });
+  assert.equal(result, "yes");
+});
+
+test("collisionPrompt: returns 'no' when the mocked select returns 'no'", async () => {
+  const grillMe = makeItem({ id: "commands/grill-me", type: "command", name: "grill-me" });
+  const fakeSelect = async (_opts: unknown): Promise<unknown> => "no";
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  const result = await collisionPrompt(grillMe, "/abs/target/.opencode/command/grill-me.md", {
+    select: fakeSelect as never,
+    isCancel: fakeIsCancel,
+  });
+  assert.equal(result, "no");
+});
+
+test("collisionPrompt: returns 'yes-all' when the mocked select returns 'yes-all'", async () => {
+  const grillMe = makeItem({ id: "commands/grill-me", type: "command", name: "grill-me" });
+  const fakeSelect = async (_opts: unknown): Promise<unknown> => "yes-all";
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  const result = await collisionPrompt(grillMe, "/abs/target/.opencode/command/grill-me.md", {
+    select: fakeSelect as never,
+    isCancel: fakeIsCancel,
+  });
+  assert.equal(result, "yes-all");
+});
+
+test("collisionPrompt: returns 'no-all' when the mocked select returns 'no-all'", async () => {
+  const grillMe = makeItem({ id: "commands/grill-me", type: "command", name: "grill-me" });
+  const fakeSelect = async (_opts: unknown): Promise<unknown> => "no-all";
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  const result = await collisionPrompt(grillMe, "/abs/target/.opencode/command/grill-me.md", {
+    select: fakeSelect as never,
+    isCancel: fakeIsCancel,
+  });
+  assert.equal(result, "no-all");
+});
+
+test("collisionPrompt: returns null when the mocked select returns the cancel symbol", async () => {
+  const cancelSymbol = Symbol("clack:cancel");
+  const grillMe = makeItem({ id: "commands/grill-me", type: "command", name: "grill-me" });
+  const fakeSelect = async (_opts: unknown): Promise<unknown> => cancelSymbol;
+  const fakeIsCancel = (v: unknown): v is symbol => v === cancelSymbol;
+  const result = await collisionPrompt(grillMe, "/abs/target/.opencode/command/grill-me.md", {
+    select: fakeSelect as never,
+    isCancel: fakeIsCancel,
+  });
+  assert.equal(result, null);
+});
+
+test("collisionPrompt: presents four visible options (yes, no, yes-all, no-all) in the locked order with the locked labels and hints", async () => {
+  const grillMe = makeItem({ id: "commands/grill-me", type: "command", name: "grill-me" });
+  let captured:
+    | {
+        options: Array<{ value: unknown; label?: string; hint?: string }>;
+        message?: string;
+      }
+    | undefined;
+  const fakeSelect = async (opts: unknown): Promise<unknown> => {
+    captured = opts as {
+      options: Array<{ value: unknown; label?: string; hint?: string }>;
+      message?: string;
+    };
+    return "yes";
+  };
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  await collisionPrompt(grillMe, "/abs/target/.opencode/command/grill-me.md", {
+    select: fakeSelect as never,
+    isCancel: fakeIsCancel,
+  });
+  const values = captured?.options.map((o) => o.value) ?? [];
+  assert.deepEqual(values, ["yes", "no", "yes-all", "no-all"]);
+  const labels = captured?.options.map((o) => o.label) ?? [];
+  assert.deepEqual(labels, ["Yes", "No", "Yes to all", "No to all"]);
+  const hints = captured?.options.map((o) => o.hint) ?? [];
+  assert.equal(hints[0], "Overwrite this item");
+  assert.equal(hints[1], "Skip this item");
+  assert.equal(hints[2], "Overwrite all remaining collisions");
+  assert.equal(hints[3], "Skip all remaining collisions");
+});
+
+test("collisionPrompt: message names the item and the existing path", async () => {
+  const grillMe = makeItem({ id: "commands/grill-me", type: "command", name: "grill-me" });
+  let captured: { message?: string } | undefined;
+  const fakeSelect = async (opts: unknown): Promise<unknown> => {
+    captured = opts as { message?: string };
+    return "yes";
+  };
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  await collisionPrompt(grillMe, "/abs/target/.opencode/command/grill-me.md", {
+    select: fakeSelect as never,
+    isCancel: fakeIsCancel,
+  });
+  assert.match(captured?.message ?? "", /grill-me/);
+  assert.match(captured?.message ?? "", /\/abs\/target\/.opencode\/command\/grill-me\.md/);
 });
