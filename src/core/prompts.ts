@@ -1,5 +1,6 @@
 import * as clack from "@clack/prompts";
 import type { AgentProfile, ElementType, Item } from "../types.js";
+import type { CollisionReport } from "./install.js";
 
 const REGISTRY_URL_PLACEHOLDER = "https://github.com/you/your-registry";
 
@@ -151,4 +152,38 @@ export async function itemMultiSelect(
   });
   if (deps.isCancel(result)) throw new Error("User cancelled");
   return result;
+}
+
+export interface PreInstallSummaryDeps {
+  note?: typeof clack.note;
+  log?: typeof clack.log.info;
+  cancel?: typeof clack.confirm;
+  isCancel?: (v: unknown) => v is symbol;
+}
+
+export async function preInstallSummary(
+  selections: Item[],
+  collisions: CollisionReport,
+  targetPath: string,
+  profile: AgentProfile,
+  deps: PreInstallSummaryDeps = {},
+): Promise<void> {
+  const log = deps.log ?? clack.log.info;
+  const cancel = deps.cancel ?? clack.confirm;
+  const isCancel = deps.isCancel ?? clack.isCancel;
+
+  log(`Target: ${targetPath}`);
+  log(`Selected (${selections.length}):`);
+  for (const type of TYPE_ORDER) {
+    const group = selections.filter((i) => i.type === type);
+    if (group.length === 0) continue;
+    const names = group.map((i) => i.name).join(", ");
+    log(`  ${profile.labels[type]} (${group.length}): ${names}`);
+  }
+  log(`Collisions: ${collisions.paths.length} existing items will be overwritten`);
+  for (const p of collisions.paths) {
+    log(`  ${p}`);
+  }
+  const result = await cancel({ message: "Press Enter to continue, Ctrl+C to abort." });
+  if (isCancel(result)) throw new Error("User cancelled");
 }

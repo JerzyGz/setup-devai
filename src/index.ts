@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { opencode } from "./agents/opencode.js";
 import { makeCleanup } from "./core/cleanup.js";
 import * as git from "./core/git.js";
+import * as install from "./core/install.js";
 import * as prompts from "./core/prompts.js";
 import * as registry from "./core/registry.js";
 import type { ElementType, Item } from "./types.js";
@@ -70,6 +71,11 @@ export async function main(): Promise<void> {
         priorByType.set(choice, picked);
       }
       process.stdout.write(`Selected ${selections.size} items\n`);
+      const cwd = process.cwd();
+      const targetPath = resolve(cwd, opencode.install.baseDir);
+      const collisions = install.collisionReport([...selections], opencode, cwd);
+      await prompts.preInstallSummary([...selections], collisions, targetPath, opencode);
+      process.stdout.write(`Collision report: ${collisions.paths.length}\n`);
     }
     // further wizard steps land here in later slices
   } catch (err) {

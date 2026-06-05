@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { itemMultiSelect, typeMenu, url } from "../../src/core/prompts.ts";
+import { itemMultiSelect, preInstallSummary, typeMenu, url } from "../../src/core/prompts.ts";
 import { opencode } from "../../src/agents/opencode.ts";
 import type { Item } from "../../src/types.ts";
 
@@ -477,4 +477,111 @@ test("itemMultiSelect: respects the user's returned subset (un-checking a pre-ch
     isCancel: fakeIsCancel,
   });
   assert.deepEqual(result, [root]);
+});
+
+test("preInstallSummary: with empty selections and zero collisions, renders the basic structure to the log", async () => {
+  const messages: string[] = [];
+  const fakeLog = (msg: string): void => {
+    messages.push(msg);
+  };
+  const fakeCancel = async (_opts: unknown): Promise<unknown> => true;
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  await preInstallSummary(
+    [],
+    { paths: [], items: [], byType: { command: [], agent: [], skill: [] } },
+    "/abs/target",
+    opencode,
+    {
+      log: fakeLog as never,
+      cancel: fakeCancel as never,
+      isCancel: fakeIsCancel,
+    },
+  );
+  const joined = messages.join("\n");
+  assert.match(joined, /Target: \/abs\/target/);
+  assert.match(joined, /Selected \(0\):/);
+  assert.match(joined, /Collisions: 0 existing items will be overwritten/);
+});
+
+test("preInstallSummary: groups selections by type in canonical order, with counts and comma-separated names", async () => {
+  const grillMe = makeItem({ id: "commands/grill-me", type: "command", name: "grill-me" });
+  const minimal = makeItem({ id: "commands/minimal", type: "command", name: "minimal" });
+  const doc = makeItem({ id: "agents/document-writer", type: "agent", name: "document-writer" });
+  const commit = makeItem({ id: "skills/commit", type: "skill", name: "commit" });
+  const messages: string[] = [];
+  const fakeLog = (msg: string): void => {
+    messages.push(msg);
+  };
+  const fakeCancel = async (_opts: unknown): Promise<unknown> => true;
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  await preInstallSummary(
+    [grillMe, doc, minimal, commit],
+    { paths: [], items: [], byType: { command: [], agent: [], skill: [] } },
+    "/abs/target",
+    opencode,
+    {
+      log: fakeLog as never,
+      cancel: fakeCancel as never,
+      isCancel: fakeIsCancel,
+    },
+  );
+  const joined = messages.join("\n");
+  assert.match(joined, /Selected \(4\):/);
+  assert.match(joined, /Commands \(2\): grill-me, minimal/);
+  assert.match(joined, /Agents \/ Subagents \(1\): document-writer/);
+  assert.match(joined, /Skills \(1\): commit/);
+  const cmdIdx = joined.indexOf("Commands (2)");
+  const agentIdx = joined.indexOf("Agents / Subagents (1)");
+  const skillIdx = joined.indexOf("Skills (1)");
+  assert.ok(
+    cmdIdx > 0 && agentIdx > cmdIdx && skillIdx > agentIdx,
+    "groups should be in command, agent, skill order",
+  );
+});
+
+test("preInstallSummary: with a non-empty collision report, lists each path on its own line", async () => {
+  const grillMe = makeItem({ id: "commands/grill-me", type: "command", name: "grill-me" });
+  const commit = makeItem({ id: "skills/commit", type: "skill", name: "commit" });
+  const messages: string[] = [];
+  const fakeLog = (msg: string): void => {
+    messages.push(msg);
+  };
+  const fakeCancel = async (_opts: unknown): Promise<unknown> => true;
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  const report = {
+    paths: ["/abs/target/.opencode/command/grill-me.md", "/abs/target/.opencode/skill/commit"],
+    items: [grillMe, commit],
+    byType: { command: [grillMe], agent: [], skill: [commit] },
+  };
+  await preInstallSummary([grillMe, commit], report, "/abs/target", opencode, {
+    log: fakeLog as never,
+    cancel: fakeCancel as never,
+    isCancel: fakeIsCancel,
+  });
+  const joined = messages.join("\n");
+  assert.match(joined, /Collisions: 2 existing items will be overwritten/);
+  assert.match(joined, /\n  \/abs\/target\/.opencode\/command\/grill-me\.md/);
+  assert.match(joined, /\n  \/abs\/target\/.opencode\/skill\/commit/);
+});
+
+test("preInstallSummary: throws 'User cancelled' when the user cancels the Enter prompt", async () => {
+  const cancelSymbol = Symbol("clack:cancel");
+  const fakeLog = (_msg: string): void => {};
+  const fakeCancel = async (_opts: unknown): Promise<unknown> => cancelSymbol;
+  const fakeIsCancel = (v: unknown): v is symbol => v === cancelSymbol;
+  await assert.rejects(
+    () =>
+      preInstallSummary(
+        [],
+        { paths: [], items: [], byType: { command: [], agent: [], skill: [] } },
+        "/abs/target",
+        opencode,
+        {
+          log: fakeLog as never,
+          cancel: fakeCancel as never,
+          isCancel: fakeIsCancel,
+        },
+      ),
+    /User cancelled/,
+  );
 });
