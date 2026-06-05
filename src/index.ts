@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeCleanup } from "./core/cleanup.js";
 import { commandExists } from "./core/git.js";
+import * as prompts from "./core/prompts.js";
 
 export async function main(): Promise<void> {
   const tempDir = mkdtempSync(join(tmpdir(), "setup-devai-"));
@@ -46,8 +47,18 @@ export async function main(): Promise<void> {
     const holdMs = Number(process.env.SETUP_DEVAI_TEST_HOLD_MS ?? 0);
     if (holdMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, holdMs));
+    } else {
+      const registryUrl = await prompts.url();
+      console.log(registryUrl);
     }
-    // wizard steps land here in later slices
+    // further wizard steps land here in later slices
+  } catch (err) {
+    if (err instanceof Error && err.message === "User cancelled") {
+      process.kill(process.pid, "SIGINT");
+      await new Promise(() => {});
+      return;
+    }
+    throw err;
   } finally {
     cleanupSync(tempDir);
   }
