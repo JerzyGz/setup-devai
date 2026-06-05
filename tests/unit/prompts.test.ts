@@ -645,6 +645,177 @@ test("itemMultiSelect: respects the user's returned subset (un-checking a pre-ch
   assert.deepEqual(result, [root]);
 });
 
+test("itemMultiSelect: an item in state 'differs' gets ' (new version available)' appended to its label, with the hint left untouched", async () => {
+  const foo = makeItem({
+    id: "commands/foo",
+    type: "command",
+    name: "foo",
+    description: "The foo command",
+  });
+  let captured:
+    | {
+        options: Array<{ value: unknown; label?: string; hint?: string }>;
+        initialValues?: unknown[];
+      }
+    | undefined;
+  const fakeMultiselect = async (opts: unknown): Promise<unknown> => {
+    captured = opts as {
+      options: Array<{ value: unknown; label?: string; hint?: string }>;
+      initialValues?: unknown[];
+    };
+    return [];
+  };
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  await itemMultiSelect(
+    [foo],
+    "command",
+    opencode,
+    [],
+    { multiselect: fakeMultiselect as never, isCancel: fakeIsCancel },
+    () => "differs",
+  );
+  const fooOpt = captured?.options.find((o) => o.value === foo);
+  assert.equal(fooOpt?.label, "foo (new version available)");
+  assert.equal(fooOpt?.hint, "The foo command", "hint should be the unchanged description");
+});
+
+test("itemMultiSelect: an item in state 'identical' has no label suffix and is not auto-checked unless present in priorSelections", async () => {
+  const foo = makeItem({
+    id: "commands/foo",
+    type: "command",
+    name: "foo",
+    description: "The foo command",
+  });
+  let captured:
+    | {
+        options: Array<{ value: unknown; label?: string; hint?: string }>;
+        initialValues?: unknown[];
+      }
+    | undefined;
+  const fakeMultiselect = async (opts: unknown): Promise<unknown> => {
+    captured = opts as {
+      options: Array<{ value: unknown; label?: string; hint?: string }>;
+      initialValues?: unknown[];
+    };
+    return [];
+  };
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  await itemMultiSelect(
+    [foo],
+    "command",
+    opencode,
+    [],
+    { multiselect: fakeMultiselect as never, isCancel: fakeIsCancel },
+    () => "identical",
+  );
+  const fooOpt = captured?.options.find((o) => o.value === foo);
+  assert.equal(fooOpt?.label, "foo", "identical items carry no suffix");
+  assert.deepEqual(
+    captured?.initialValues ?? [],
+    [],
+    "state alone must not pre-check; priorSelections does that",
+  );
+});
+
+test("itemMultiSelect: an item in state 'not-installed' has no label suffix", async () => {
+  const foo = makeItem({
+    id: "commands/foo",
+    type: "command",
+    name: "foo",
+    description: "The foo command",
+  });
+  let captured:
+    | {
+        options: Array<{ value: unknown; label?: string; hint?: string }>;
+      }
+    | undefined;
+  const fakeMultiselect = async (opts: unknown): Promise<unknown> => {
+    captured = opts as { options: Array<{ value: unknown; label?: string; hint?: string }> };
+    return [];
+  };
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  await itemMultiSelect(
+    [foo],
+    "command",
+    opencode,
+    [],
+    { multiselect: fakeMultiselect as never, isCancel: fakeIsCancel },
+    () => "not-installed",
+  );
+  const fooOpt = captured?.options.find((o) => o.value === foo);
+  assert.equal(fooOpt?.label, "foo");
+});
+
+test("itemMultiSelect: the (new version available) suffix is applied to the label only, not the hint — and the hint is still cropped to a single line", async () => {
+  const foo = makeItem({
+    id: "commands/foo",
+    type: "command",
+    name: "foo",
+    description: "z".repeat(200),
+  });
+  let captured:
+    | {
+        options: Array<{ value: unknown; label?: string; hint?: string }>;
+      }
+    | undefined;
+  const fakeMultiselect = async (opts: unknown): Promise<unknown> => {
+    captured = opts as { options: Array<{ value: unknown; label?: string; hint?: string }> };
+    return [];
+  };
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  const originalColumns = Object.getOwnPropertyDescriptor(process.stdout, "columns");
+  Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+  try {
+    await itemMultiSelect(
+      [foo],
+      "command",
+      opencode,
+      [],
+      { multiselect: fakeMultiselect as never, isCancel: fakeIsCancel },
+      () => "differs",
+    );
+  } finally {
+    if (originalColumns) {
+      Object.defineProperty(process.stdout, "columns", originalColumns);
+    } else {
+      delete (process.stdout as unknown as { columns?: number }).columns;
+    }
+  }
+  const fooOpt = captured?.options.find((o) => o.value === foo);
+  const budget = 80 - foo.name.length - 6;
+  assert.equal(fooOpt?.label, "foo (new version available)", "label gets the suffix");
+  assert.equal(fooOpt?.hint?.length, budget, "hint is still cropped to the single-line budget");
+  assert.ok(
+    fooOpt?.hint?.endsWith("…"),
+    "cropped hint still ends with the single-character ellipsis",
+  );
+});
+
+test("itemMultiSelect: when getState is not provided, no item receives a label suffix (back-compat for the existing test stub)", async () => {
+  const foo = makeItem({ id: "commands/foo", type: "command", name: "foo" });
+  const bar = makeItem({ id: "commands/bar", type: "command", name: "bar" });
+  let captured:
+    | {
+        options: Array<{ value: unknown; label?: string; hint?: string }>;
+      }
+    | undefined;
+  const fakeMultiselect = async (opts: unknown): Promise<unknown> => {
+    captured = opts as { options: Array<{ value: unknown; label?: string; hint?: string }> };
+    return [];
+  };
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  await itemMultiSelect([foo, bar], "command", opencode, [], {
+    multiselect: fakeMultiselect as never,
+    isCancel: fakeIsCancel,
+  });
+  for (const opt of captured?.options ?? []) {
+    assert.ok(
+      !opt.label?.includes("new version available"),
+      `label '${opt.label}' should NOT contain the suffix when getState is absent`,
+    );
+  }
+});
+
 test("preInstallSummary: with empty selections and zero collisions, renders the basic structure to the log", async () => {
   const messages: string[] = [];
   const fakeLog = (msg: string): void => {
@@ -979,4 +1150,56 @@ test("postInstallSummary: when no item failed, does not call log.error", () => {
   const results: InstallResult[] = [{ status: "installed" }];
   postInstallSummary([a], results, "/abs/target", opencode, { log: log as never });
   assert.equal(errorMessages.length, 0, "log.error should not be called when no failures");
+});
+
+test("postInstallSummary: breaks the Skipped count down by reason ('already-installed' vs 'collision-declined')", () => {
+  const { log, successMessages } = makeFakeLog();
+  const a = makeItem({ id: "commands/a", type: "command", name: "a" });
+  const b = makeItem({ id: "commands/b", type: "command", name: "b" });
+  const c = makeItem({ id: "commands/c", type: "command", name: "c" });
+  const d = makeItem({ id: "commands/d", type: "command", name: "d" });
+  const results: InstallResult[] = [
+    { status: "installed" },
+    { status: "skipped", reason: "already-installed" },
+    { status: "skipped", reason: "already-installed" },
+    { status: "skipped", reason: "collision-declined" },
+  ];
+  postInstallSummary([a, b, c, d], results, "/abs/target", opencode, {
+    log: log as never,
+  });
+  const joined = successMessages.join("\n");
+  assert.match(
+    joined,
+    /Skipped 3 \(2 already installed, 1 collisions declined\)/,
+    `expected the Skipped line to break down by reason, got: ${joined}`,
+  );
+});
+
+test("postInstallSummary: when only 'already-installed' items are skipped, shows 0 collisions declined", () => {
+  const { log, successMessages } = makeFakeLog();
+  const a = makeItem({ id: "commands/a", type: "command", name: "a" });
+  const results: InstallResult[] = [
+    { status: "skipped", reason: "already-installed" },
+    { status: "skipped", reason: "already-installed" },
+  ];
+  postInstallSummary([a, a], results, "/abs/target", opencode, { log: log as never });
+  const joined = successMessages.join("\n");
+  assert.match(
+    joined,
+    /Skipped 2 \(2 already installed, 0 collisions declined\)/,
+    `expected 0 collisions declined, got: ${joined}`,
+  );
+});
+
+test("postInstallSummary: when only 'collision-declined' items are skipped, shows 0 already installed", () => {
+  const { log, successMessages } = makeFakeLog();
+  const a = makeItem({ id: "commands/a", type: "command", name: "a" });
+  const results: InstallResult[] = [{ status: "skipped", reason: "collision-declined" }];
+  postInstallSummary([a], results, "/abs/target", opencode, { log: log as never });
+  const joined = successMessages.join("\n");
+  assert.match(
+    joined,
+    /Skipped 1 \(0 already installed, 1 collisions declined\)/,
+    `expected 0 already installed, got: ${joined}`,
+  );
 });

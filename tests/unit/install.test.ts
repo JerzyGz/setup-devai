@@ -156,6 +156,55 @@ test("collisionReport: with a mixed selection of all three types, only existing 
   }
 });
 
+test("collisionReport: excludes items whose local state is 'identical' — even though their target exists on disk", () => {
+  const cwd = mkCwd();
+  try {
+    const grillTarget = join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md");
+    const docTarget = join(cwd, ".opencode", OpenCodeFolders.agents, "document-writer.md");
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.commands), { recursive: true });
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.agents), { recursive: true });
+    writeFileSync(grillTarget, "old grill-me — differs\n");
+    writeFileSync(docTarget, "old document-writer — identical to what caller will say\n");
+    const grillMe = makeItem({ id: "commands/grill-me", type: "command", name: "grill-me" });
+    const doc = makeItem({ id: "agents/document-writer", type: "agent", name: "document-writer" });
+
+    const report = collisionReport([grillMe, doc], opencode, cwd, (item) =>
+      item.id === "agents/document-writer" ? "identical" : "differs",
+    );
+
+    assert.deepEqual(report.paths, [grillTarget]);
+    assert.deepEqual(report.items, [grillMe]);
+    assert.equal(report.byType.command.length, 1);
+    assert.equal(
+      report.byType.agent.length,
+      0,
+      "identical agent must be excluded from the per-type breakdown",
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("collisionReport: when getState is not provided, all existing targets are reported (back-compat)", () => {
+  const cwd = mkCwd();
+  try {
+    const grillTarget = join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md");
+    const docTarget = join(cwd, ".opencode", OpenCodeFolders.agents, "document-writer.md");
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.commands), { recursive: true });
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.agents), { recursive: true });
+    writeFileSync(grillTarget, "old grill-me\n");
+    writeFileSync(docTarget, "old document-writer\n");
+    const grillMe = makeItem({ id: "commands/grill-me", type: "command", name: "grill-me" });
+    const doc = makeItem({ id: "agents/document-writer", type: "agent", name: "document-writer" });
+
+    const report = collisionReport([grillMe, doc], opencode, cwd);
+
+    assert.deepEqual(report.paths.sort(), [grillTarget, docTarget].sort());
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("installItem: copies a single file to its target path and returns 'installed'", async () => {
   const cwd = mkCwd();
   const sourceDir = mkdtempSync(join(tmpdir(), "setup-devai-install-src-"));
@@ -672,6 +721,118 @@ test("installAll: when the prompt returns null, throws 'User cancelled' and the 
     });
     const fakePrompt = async (): Promise<null> => null;
     await assert.rejects(() => installAll([grillMe], opencode, cwd, fakePrompt), /User cancelled/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(sourceDir, { recursive: true, force: true });
+  }
+});
+
+test("installAll: items in state 'identical' short-circuit to 'already-installed', never call the prompt, and never write to the target", async () => {
+  const cwd = mkCwd();
+  const sourceDir = mkdtempSync(join(tmpdir(), "setup-devai-installall-identical-"));
+  try {
+    const cmdSource = join(sourceDir, "grill-me.md");
+    const agentSource = join(sourceDir, "document-writer.md");
+    writeFileSync(cmdSource, "grill-me content\n");
+    writeFileSync(agentSource, "document-writer content\n");
+    const grillMe = makeItem({
+      id: "commands/grill-me",
+      type: "command",
+      name: "grill-me",
+      path: cmdSource,
+    });
+    const doc = makeItem({
+      id: "agents/document-writer",
+      type: "agent",
+      name: "document-writer",
+      path: agentSource,
+    });
+
+    let promptCalls = 0;
+    const fakePrompt = async (): Promise<"yes" | null> => {
+      promptCalls += 1;
+      return "yes";
+    };
+
+    const results = await installAll([grillMe, doc], opencode, cwd, fakePrompt, () => "identical");
+
+    assert.equal(promptCalls, 0, "prompt must not be called for items in state 'identical'");
+    assert.deepEqual(results, [
+      { status: "skipped", reason: "already-installed" },
+      { status: "skipped", reason: "already-installed" },
+    ]);
+    assert.equal(
+      existsSync(join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md")),
+      false,
+      "no file should have been written for an identical command",
+    );
+    assert.equal(
+      existsSync(join(cwd, ".opencode", OpenCodeFolders.agents, "document-writer.md")),
+      false,
+      "no file should have been written for an identical agent",
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(sourceDir, { recursive: true, force: true });
+  }
+});
+
+test("installAll: identical short-circuit does not latch bulkChoice from a previous 'yes-all' or 'no-all' answer", async () => {
+  const cwd = mkCwd();
+  const sourceDir = mkdtempSync(join(tmpdir(), "setup-devai-installall-idem-bulk-"));
+  try {
+    const cmdSource = join(sourceDir, "grill-me.md");
+    const agentSource = join(sourceDir, "document-writer.md");
+    const skillSource = join(sourceDir, "commit");
+    mkdirSync(skillSource, { recursive: true });
+    writeFileSync(cmdSource, "cmd\n");
+    writeFileSync(agentSource, "agent\n");
+    writeFileSync(join(skillSource, "SKILL.md"), "skill\n");
+
+    const existingTarget = join(cwd, ".opencode", OpenCodeFolders.commands, "grill-me.md");
+    mkdirSync(join(cwd, ".opencode", OpenCodeFolders.commands), { recursive: true });
+    writeFileSync(existingTarget, "old\n");
+
+    const grillMe = makeItem({
+      id: "commands/grill-me",
+      type: "command",
+      name: "grill-me",
+      path: cmdSource,
+    });
+    const doc = makeItem({
+      id: "agents/document-writer",
+      type: "agent",
+      name: "document-writer",
+      path: agentSource,
+    });
+    const commit = makeItem({
+      id: "skills/commit",
+      type: "skill",
+      name: "commit",
+      path: skillSource,
+      isDirectory: true,
+    });
+
+    const states = new Map<string, "not-installed" | "identical" | "differs">([
+      ["commands/grill-me", "differs"],
+      ["agents/document-writer", "identical"],
+      ["skills/commit", "not-installed"],
+    ]);
+    const getState = (item: Item): "not-installed" | "identical" | "differs" =>
+      states.get(item.id) ?? "not-installed";
+
+    let promptCalls = 0;
+    const fakePrompt = async (): Promise<"yes-all" | null> => {
+      promptCalls += 1;
+      return "yes-all";
+    };
+
+    const results = await installAll([grillMe, doc, commit], opencode, cwd, fakePrompt, getState);
+
+    assert.equal(promptCalls, 1, "prompt should fire only for the one 'differs' item");
+    assert.deepEqual(results[0], { status: "installed" });
+    assert.deepEqual(results[1], { status: "skipped", reason: "already-installed" });
+    assert.deepEqual(results[2], { status: "installed" });
   } finally {
     rmSync(cwd, { recursive: true, force: true });
     rmSync(sourceDir, { recursive: true, force: true });

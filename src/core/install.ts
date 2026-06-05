@@ -1,6 +1,7 @@
 import { cpSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import type { AgentProfile, ElementType, Item } from "../types.js";
+import { computeTarget, type LocalState } from "./sync.js";
 
 export interface CollisionReport {
   paths: string[];
@@ -13,6 +14,7 @@ export type CollisionChoice = "yes" | "no" | "yes-all" | "no-all";
 export type InstallResult =
   | { status: "installed" }
   | { status: "skipped"; reason: "collision-declined" }
+  | { status: "skipped"; reason: "already-installed" }
   | { status: "failed"; reason: string };
 
 interface FsOps {
@@ -28,25 +30,6 @@ export function _setFsOpsForTesting(ops: Partial<FsOps>): void {
 }
 
 /**
- * Compute the absolute on-disk path an `item` would be installed to
- * under the profile's install base directory.
- *
- * Commands and agents are written as a single `.md` file; skills are
- * written as a directory whose name matches the item's name.
- */
-function computeTarget(item: Item, profile: AgentProfile, cwd: string): string {
-  const base = join(cwd, profile.install.baseDir);
-  switch (item.type) {
-    case "command":
-      return join(base, profile.install.commandSubdir, `${item.name}.md`);
-    case "agent":
-      return join(base, profile.install.agentSubdir, `${item.name}.md`);
-    case "skill":
-      return join(base, profile.install.skillSubdir, item.name);
-  }
-}
-
-/**
  * Scan a selection of items and report which ones would overwrite an
  * existing file or directory at their target install path.
  *
@@ -54,9 +37,20 @@ function computeTarget(item: Item, profile: AgentProfile, cwd: string): string {
  * modified. It is intended to be shown to the user before any install
  * actually runs.
  *
+ * When `getState` is provided, items whose local state is
+ * `"identical"` are excluded: they are byte-for-byte equal to the
+ * registry and will be skipped silently at install time, so they are
+ * not real overwrites. Items in state `"differs"` (target exists with
+ * different content) and `"not-installed"` (target does not exist)
+ * are handled as before — `"differs"` is a real collision,
+ * `"not-installed"` is not a collision.
+ *
+ * When `getState` is omitted, every existing target is reported.
+ *
  * @param items - Items the user is about to install
  * @param profile - Agent profile (provides install paths)
  * @param cwd - Current working directory (the install root)
+ * @param getState - Per-item local state, or omitted for back-compat
  * @returns The list of colliding paths, the colliding items, and a
  *          per-type breakdown for the summary screen
  */
@@ -64,11 +58,13 @@ export function collisionReport(
   items: Item[],
   profile: AgentProfile,
   cwd: string,
+  getState: (item: Item) => LocalState = () => "not-installed",
 ): CollisionReport {
   const paths: string[] = [];
   const colliding: Item[] = [];
   const byType: Record<ElementType, Item[]> = { command: [], agent: [], skill: [] };
   for (const item of items) {
+    if (getState(item) === "identical") continue;
     const target = computeTarget(item, profile, cwd);
     if (existsSync(target)) {
       paths.push(target);
@@ -139,10 +135,17 @@ export type CollisionPrompt = (item: Item, existingPath: string) => Promise<Coll
  * into a thrown `Error("User cancelled")` so the caller can abort the
  * whole run cleanly.
  *
+ * When `getState` is provided, items whose local state is
+ * `"identical"` short-circuit to `{ status: "skipped", reason:
+ * "already-installed" }` without invoking `prompt` and without writing
+ * any bytes. Items of other states (or when `getState` is omitted)
+ * flow through the normal collision / install path.
+ *
  * @param items - Items to install, in user-confirmed order
  * @param profile - Agent profile
  * @param cwd - Current working directory
  * @param prompt - Called only when a target path already exists
+ * @param getState - Per-item local state, or omitted for back-compat
  * @returns One structured result per input item, in the same order
  */
 export async function installAll(
@@ -150,10 +153,15 @@ export async function installAll(
   profile: AgentProfile,
   cwd: string,
   prompt: CollisionPrompt,
+  getState: (item: Item) => LocalState = () => "not-installed",
 ): Promise<InstallResult[]> {
   const results: InstallResult[] = [];
   let bulkChoice: CollisionChoice | null = null;
   for (const item of items) {
+    if (getState(item) === "identical") {
+      results.push({ status: "skipped", reason: "already-installed" });
+      continue;
+    }
     const target = computeTarget(item, profile, cwd);
     let choice: CollisionChoice | null;
     if (bulkChoice !== null) {

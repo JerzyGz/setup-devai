@@ -11,6 +11,7 @@ import * as install from "./core/install.js";
 import * as prompts from "./core/prompts.js";
 import * as registry from "./core/registry.js";
 import * as state from "./core/state.js";
+import { localState, priorPicksForVisit, type LocalState } from "./core/sync.js";
 import type { ElementType, Item } from "./types.js";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -42,13 +43,21 @@ export interface MainDeps {
  * Flow:
  * 1. Clone the registry into a temp directory
  * 2. Scan for available commands, agents, and skills
- * 3. Present a type menu (command/agent/skill to install)
- * 4. Allow multi-select of items within the chosen type
- * 5. Track prior selections across type-switches
- * 6. On install, run collision detection
- * 7. Show pre-install summary with collision report
- * 8. Install all selected items, prompting for collisions
- * 9. Show post-install summary
+ * 3. Compute each item's local state (`not-installed` / `identical` /
+ *    `differs`) by live-comparing the freshly-cloned registry to the
+ *    current contents of `.opencode/` (see ADR 0002 — no manifest)
+ * 4. Present a type menu (command/agent/skill to install)
+ * 5. On the first visit to a type this session, pre-check items in
+ *    state `identical`; on subsequent visits, the user's last picks
+ *    for that type win (distinguishing "never visited" from
+ *    "visited and un-checked everything")
+ * 6. Track prior selections across type-switches
+ * 7. On install, compute a collision report that excludes `identical`
+ *    items, then show the pre-install summary
+ * 8. Install all selected items, prompting for collisions; items in
+ *    state `identical` short-circuit to a silent skip
+ * 9. Show the post-install summary, breaking the skipped count down
+ *    by reason (`already-installed` vs `collision-declined`)
  *
  * @param deps - Optional injected prompt dependencies for testing
  * @param argv - CLI arguments (defaults to process.argv.slice(2))
@@ -127,13 +136,19 @@ export async function main(
       await git.cloneShallow(registryUrl, tempDir);
       s.saveLastUrl(homeDir, env, registryUrl);
       const items = registry.scan(tempDir, opencode);
+      const cwd = process.cwd();
+      const targetPath = resolve(cwd, opencode.install.baseDir);
+      const stateByItem = new Map<Item, LocalState>(
+        items.map((item) => [item, localState(item, opencode, cwd)] as const),
+      );
+      const getState = (item: Item): LocalState => stateByItem.get(item) ?? "not-installed";
       const selections = new Set<Item>();
       const priorByType = new Map<ElementType, Item[]>();
       while (true) {
         const choice = await p.typeMenu(items, opencode);
         if (choice === "install") break;
-        const prior = priorByType.get(choice) ?? [];
-        const picked = await p.itemMultiSelect(items, choice, opencode, prior);
+        const prior = priorPicksForVisit(stateByItem, choice, items, priorByType);
+        const picked = await p.itemMultiSelect(items, choice, opencode, prior, undefined, getState);
         for (const existing of selections) {
           if (existing.type === choice) selections.delete(existing);
         }
@@ -147,15 +162,14 @@ export async function main(
         process.stdout.write("Nothing selected. Exiting.\n");
         return;
       }
-      const cwd = process.cwd();
-      const targetPath = resolve(cwd, opencode.install.baseDir);
-      const collisions = install.collisionReport([...selections], opencode, cwd);
+      const collisions = install.collisionReport([...selections], opencode, cwd, getState);
       await p.preInstallSummary([...selections], collisions, targetPath, opencode);
       const results = await install.installAll(
         [...selections],
         opencode,
         cwd,
         (item, existingPath) => p.collisionPrompt(item, existingPath),
+        getState,
       );
       p.postInstallSummary([...selections], results, targetPath, opencode);
     }

@@ -1,6 +1,7 @@
 import * as clack from "@clack/prompts";
 import type { AgentProfile, ElementType, Item } from "../types.js";
 import type { CollisionReport, InstallResult } from "./install.js";
+import type { LocalState } from "./sync.js";
 
 const REGISTRY_URL_PLACEHOLDER = "https://github.com/you/your-registry";
 
@@ -132,6 +133,15 @@ const defaultItemMultiSelectDeps: ItemMultiSelectDeps = {
  * targets are skipped (with a one-time stderr warning per target), as
  * this prompt is single-type. The user's returned subset is returned
  * as-is (a required item can be un-checked if the user really wants to).
+ *
+ * When a `getState` function is provided, items whose local state is
+ * `"differs"` get ` (new version available)` appended to their label
+ * (label only — the hint is unchanged, and the cropHint budget from
+ * the label's bare `item.name` still applies to the hint). Items in
+ * `"identical"` and `"not-installed"` carry no suffix. When `getState`
+ * is omitted (the default), no item receives a suffix — the function
+ * is then content with whatever the caller knows.
+ *
  * Throws `"User cancelled"` on cancel.
  */
 export async function itemMultiSelect(
@@ -140,6 +150,7 @@ export async function itemMultiSelect(
   _profile: AgentProfile,
   priorSelections: Item[],
   deps: ItemMultiSelectDeps = defaultItemMultiSelectDeps,
+  getState: (item: Item) => LocalState = () => "not-installed",
 ): Promise<Item[]> {
   const typeItems = items.filter((i) => i.type === type);
   const itemsById = new Map(items.map((i) => [i.id, i]));
@@ -186,7 +197,7 @@ export async function itemMultiSelect(
     message: "Select items",
     options: typeItems.map((item) => ({
       value: item,
-      label: item.name,
+      label: getState(item) === "differs" ? `${item.name} (new version available)` : item.name,
       hint: cropHint(item.description, item.name.length, process.stdout.columns ?? 80),
     })),
     initialValues,
@@ -287,8 +298,9 @@ export interface PostInstallSummaryDeps {
 
 /**
  * Render the post-install summary: total installed, per-type installed
- * counts (in canonical order), skipped count, and failed count. Emits
- * an `log.error` line iff at least one item failed.
+ * counts (in canonical order), a skipped count broken down by reason
+ * (`already-installed` vs `collision-declined`), and a failed count.
+ * Emits an `log.error` line iff at least one item failed.
  */
 export function postInstallSummary(
   items: Item[],
@@ -301,6 +313,12 @@ export function postInstallSummary(
   const installed = results.filter((r) => r.status === "installed").length;
   const skipped = results.filter((r) => r.status === "skipped").length;
   const failed = results.filter((r) => r.status === "failed").length;
+  const skippedAlreadyInstalled = results.filter(
+    (r) => r.status === "skipped" && r.reason === "already-installed",
+  ).length;
+  const skippedCollisionDeclined = results.filter(
+    (r) => r.status === "skipped" && r.reason === "collision-declined",
+  ).length;
   const installedByType: Record<ElementType, number> = { command: 0, agent: 0, skill: 0 };
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
@@ -314,7 +332,9 @@ export function postInstallSummary(
     const count = installedByType[type];
     if (count > 0) lines.push(`  ${count} ${profile.labels[type]}`);
   }
-  lines.push(`Skipped ${skipped}`);
+  lines.push(
+    `Skipped ${skipped} (${skippedAlreadyInstalled} already installed, ${skippedCollisionDeclined} collisions declined)`,
+  );
   lines.push(`Failed ${failed}`);
   log.success(lines.join("\n"));
   if (failed > 0) {

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { spawn, spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -67,6 +67,12 @@ function spawnDriver(driverScript: string, env: Record<string, string> = {}): Fl
 const FULL_FIXTURE_DRIVER = (fixtureUrl: string, postInstallBehavior: string): string => `
 import { main } from "./src/index.ts";
 import * as realPrompts from "./src/core/prompts.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const installRoot = mkdtempSync(join(tmpdir(), "setup-devai-flow-cwd-"));
+process.chdir(installRoot);
 
 let typeMenuCall = 0;
 const order = ["command", "agent", "skill", "install"];
@@ -86,7 +92,11 @@ const stubPrompts = {
   postInstallSummary: ${postInstallBehavior},
 };
 
-await main({ prompts: stubPrompts });
+try {
+  await main({ prompts: stubPrompts });
+} finally {
+  rmSync(installRoot, { recursive: true, force: true });
+}
 `;
 
 test("main flow: full successful install of fixture registry exits 0, renders the post-install summary, and cleans up the temp dir", async () => {
@@ -125,6 +135,12 @@ test("main flow: user picks [ Install ] with no selections prints 'Nothing selec
   const fixtureUrl = pathToFileURL(source).href;
   const driver = `
 import { main } from "./src/index.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const installRoot = mkdtempSync(join(tmpdir(), "setup-devai-flow-cwd-"));
+process.chdir(installRoot);
 
 const stubPrompts = {
   url: async () => ${JSON.stringify(fixtureUrl)},
@@ -135,7 +151,11 @@ const stubPrompts = {
   postInstallSummary: () => {},
 };
 
-await main({ prompts: stubPrompts });
+try {
+  await main({ prompts: stubPrompts });
+} finally {
+  rmSync(installRoot, { recursive: true, force: true });
+}
 `;
   try {
     const { result } = spawnDriver(driver);
@@ -163,6 +183,12 @@ await main({ prompts: stubPrompts });
 test("main flow: when url() rejects (simulated git clone failure), main()'s catch sets exitCode=1 so the process exits 1", async () => {
   const driver = `
 import { main } from "./src/index.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const installRoot = mkdtempSync(join(tmpdir(), "setup-devai-flow-cwd-"));
+process.chdir(installRoot);
 
 const stubPrompts = {
   url: async () => {
@@ -180,6 +206,8 @@ try {
   process.stdout.write("MAIN_RETURNED");
 } catch (e) {
   process.stdout.write("MAIN_THREW");
+} finally {
+  rmSync(installRoot, { recursive: true, force: true });
 }
 `;
   const { result } = spawnDriver(driver);
@@ -189,4 +217,137 @@ try {
     1,
     `expected exit code 1, got code=${code} signal=${signal}\nstdout: ${stdout}\nstderr: ${stderr}`,
   );
+});
+
+test("main flow: with mixed not-installed / identical / differs items, identical is skipped silently, differs prompts, and the summary shows the correct breakdown", async () => {
+  const source = setupFixtureAsGitRepo();
+  const fixtureUrl = pathToFileURL(source).href;
+  const installRoot = mkdtempSync(join(tmpdir(), "setup-devai-mixed-cwd-"));
+  try {
+    const grillMeFixture = readFileSync(join(source, "commands/grill-me.md"), "utf8");
+    const cmdDir = join(installRoot, ".opencode", "commands");
+    mkdirSync(cmdDir, { recursive: true });
+    writeFileSync(join(cmdDir, "grill-me.md"), grillMeFixture, "utf8");
+    const minimalDir = join(installRoot, ".opencode", "commands");
+    writeFileSync(
+      join(minimalDir, "minimal.md"),
+      "---\nname: minimal\ndescription: Old minimal\n---\n# minimal\nOLD LOCAL CONTENT\n",
+      "utf8",
+    );
+    const driver = `
+import { main } from "./src/index.ts";
+import * as realPrompts from "./src/core/prompts.ts";
+import { mkdtempSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const installRoot = ${JSON.stringify(installRoot)};
+process.chdir(installRoot);
+
+let typeMenuCall = 0;
+const order = ["command", "agent", "skill", "install"];
+
+const stubPrompts = {
+  url: async () => ${JSON.stringify(fixtureUrl)},
+  typeMenu: async () => {
+    const next = order[typeMenuCall] ?? "install";
+    typeMenuCall++;
+    return next;
+  },
+  itemMultiSelect: async (items, type) => {
+    return items.filter((i) => i.type === type);
+  },
+  preInstallSummary: async (selections, collisions, targetPath, profile) => {
+    realPrompts.preInstallSummary(selections, collisions, targetPath, profile);
+    writeFileSync(join(installRoot, "preinstall.json"), JSON.stringify({
+      selectionNames: selections.map((i) => i.name),
+      collisionPaths: collisions.paths,
+    }));
+  },
+  collisionPrompt: async (item, existingPath) => {
+    appendFileSync(join(installRoot, "collision.log"), item.name + "\\n");
+    return "yes-all";
+  },
+  postInstallSummary: (items, results, targetPath, profile) => {
+    realPrompts.postInstallSummary(items, results, targetPath, profile);
+  },
+};
+
+try {
+  await main({ prompts: stubPrompts });
+} catch (err) {
+  process.stderr.write("DRIVER_ERROR: " + (err instanceof Error ? err.stack : String(err)) + "\\n");
+  process.exit(2);
+}
+`;
+    const { result } = spawnDriver(driver);
+    const { code, signal, stdout, stderr } = await result;
+    assert.equal(
+      code,
+      0,
+      `expected exit code 0, got code=${code} signal=${signal}\nstdout: ${stdout}\nstderr: ${stderr}`,
+    );
+    assert.match(
+      stdout,
+      /Skipped 1 \(1 already installed, 0 collisions declined\)/,
+      `expected the Skipped line to break down as '1 already installed, 0 collisions declined', got: ${stdout}`,
+    );
+    assert.match(
+      stdout,
+      /Installed 3 items to /,
+      `expected 3 installs (document-writer, minimal, commit), got: ${stdout}`,
+    );
+    const { readFileSync: readIt } = await import("node:fs");
+    const preinstallRaw = readIt(join(installRoot, "preinstall.json"), "utf8");
+    const preinstall = JSON.parse(preinstallRaw) as {
+      selectionNames: string[];
+      collisionPaths: string[];
+    };
+    assert.deepEqual(
+      preinstall.selectionNames.sort(),
+      ["commit", "document-writer", "grill-me", "minimal"],
+      "all 4 items should be in the selection",
+    );
+    assert.equal(
+      preinstall.collisionPaths.length,
+      1,
+      `collision report should list exactly 1 path (the 'differs' minimal), got: ${preinstall.collisionPaths.join(", ")}`,
+    );
+    assert.ok(
+      preinstall.collisionPaths[0]?.endsWith("commands/minimal.md"),
+      `the one collision should be minimal.md, got: ${preinstall.collisionPaths[0]}`,
+    );
+    const collisionLog = readIt(join(installRoot, "collision.log"), "utf8");
+    assert.match(
+      collisionLog,
+      /minimal/,
+      "the differs item (minimal) should have triggered a collision prompt",
+    );
+    assert.doesNotMatch(
+      collisionLog,
+      /grill-me/,
+      "the identical item (grill-me) should NOT have triggered a collision prompt",
+    );
+    const installedMinimal = readIt(
+      join(installRoot, ".opencode", "commands", "minimal.md"),
+      "utf8",
+    );
+    assert.doesNotMatch(
+      installedMinimal,
+      /OLD LOCAL CONTENT/,
+      "the 'differs' file should have been overwritten by the registry content",
+    );
+    const installedGrill = readIt(
+      join(installRoot, ".opencode", "commands", "grill-me.md"),
+      "utf8",
+    );
+    assert.equal(
+      installedGrill,
+      grillMeFixture,
+      "the 'identical' file should be untouched (still byte-for-byte the registry content)",
+    );
+  } finally {
+    rmSync(source, { recursive: true, force: true });
+    rmSync(installRoot, { recursive: true, force: true });
+  }
 });

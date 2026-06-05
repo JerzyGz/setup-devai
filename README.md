@@ -66,6 +66,26 @@ The file is created atomically (write a `.tmp` sibling, `chmod 0600`, rename ove
 
 For private registries, configure a credential helper instead of embedding a token in the URL: `gh auth setup-git`, SSH keys in `~/.ssh/`, or a `git credential.helper` entry.
 
+## Pre-check of already-installed items
+
+When you open the multi-select picker for a type, the wizard compares the freshly-cloned registry against your project's `.opencode/` directory and labels each item according to one of three states:
+
+| Local state                              | Pre-checked on first visit | Label suffix              | Install behavior                      |
+| ---------------------------------------- | -------------------------- | ------------------------- | ------------------------------------- |
+| Not installed                            | No                         | —                         | Normal install                        |
+| Installed, byte-for-byte identical       | Yes                        | —                         | Skipped silently                      |
+| Installed, content differs from registry | No                         | `(new version available)` | Normal collision flow if you check it |
+
+The comparison is live, against the freshly-cloned registry and the files on disk — no install manifest, lockfile, or hidden dotfile is written. (See `docs/adr/0002-no-install-manifest.md` for why.)
+
+- **Commands and agents** are compared byte-for-byte against the corresponding `.md` file under `.opencode/commands/` or `.opencode/agents/`.
+- **Skills** are compared as recursive directory walks. The walk skips `.DS_Store`, `Thumbs.db`, `.gitignore`, and any `.git/` directory on either side, so platform noise (Finder metadata, Windows thumbnails) never causes a spurious "new version available" marker. Permissions, timestamps, and symlink targets are not part of the comparison.
+- A skill whose only difference is a `.DS_Store` (or any of the ignored noise files) is reported as **identical** and skipped silently.
+
+Items in the `differs` state get the `(new version available)` suffix appended to their label only — the hint (description) is unaffected, and the single-line hint cropping still applies to the hint. On install, `differs` items trigger the normal collision prompt; `identical` items bypass the prompt and produce a `skipped` result with reason `already-installed`. The post-install summary breaks the skipped count down by reason, e.g. `Skipped 3 (2 already installed, 1 collisions declined)`.
+
+After the user un-checks a pre-checked item and switches to another type, returning to the original type keeps the item un-checked — the per-type picker remembers the user's last word, distinguishing "never visited this type this session" from "visited and confirmed empty".
+
 ## Requirements
 
 - Node.js `>=22.0.0`
