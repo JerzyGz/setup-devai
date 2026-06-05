@@ -3,10 +3,12 @@ import { strict as assert } from "node:assert";
 import {
   collisionPrompt,
   itemMultiSelect,
+  postInstallSummary,
   preInstallSummary,
   typeMenu,
   url,
 } from "../../src/core/prompts.ts";
+import type { InstallResult } from "../../src/core/install.ts";
 import { opencode } from "../../src/agents/opencode.ts";
 import type { Item } from "../../src/types.ts";
 
@@ -693,4 +695,101 @@ test("collisionPrompt: message names the item and the existing path", async () =
   });
   assert.match(captured?.message ?? "", /grill-me/);
   assert.match(captured?.message ?? "", /\/abs\/target\/.opencode\/command\/grill-me\.md/);
+});
+
+function makeFakeLog(): {
+  log: { success: (msg: string) => void; error: (msg: string) => void };
+  successMessages: string[];
+  errorMessages: string[];
+} {
+  const successMessages: string[] = [];
+  const errorMessages: string[] = [];
+  return {
+    log: {
+      success: (msg: string): void => {
+        successMessages.push(msg);
+      },
+      error: (msg: string): void => {
+        errorMessages.push(msg);
+      },
+    },
+    successMessages,
+    errorMessages,
+  };
+}
+
+test("postInstallSummary: prints 'Installed N items to <targetPath>' header via log.success", () => {
+  const { log, successMessages } = makeFakeLog();
+  const results: InstallResult[] = [];
+  postInstallSummary([], results, "/abs/target", opencode, { log: log as never });
+  const joined = successMessages.join("\n");
+  assert.match(joined, /Installed 0 items to \/abs\/target/);
+});
+
+test("postInstallSummary: lists per-type counts for installed items using profile labels in command/agent/skill order", () => {
+  const { log, successMessages } = makeFakeLog();
+  const cmdA = makeItem({ id: "commands/a", type: "command", name: "a" });
+  const cmdB = makeItem({ id: "commands/b", type: "command", name: "b" });
+  const agentA = makeItem({ id: "agents/d", type: "agent", name: "d" });
+  const skillA = makeItem({ id: "skills/c", type: "skill", name: "c" });
+  const results: InstallResult[] = [
+    { status: "installed" },
+    { status: "installed" },
+    { status: "installed" },
+    { status: "installed" },
+  ];
+  postInstallSummary([cmdA, cmdB, agentA, skillA], results, "/abs/target", opencode, {
+    log: log as never,
+  });
+  const joined = successMessages.join("\n");
+  assert.match(joined, /Installed 4 items to \/abs\/target/);
+  assert.match(joined, /2 Commands/);
+  assert.match(joined, /1 Agents \/ Subagents/);
+  assert.match(joined, /1 Skills/);
+  const cmdIdx = joined.indexOf("Commands");
+  const agentIdx = joined.indexOf("Agents / Subagents");
+  const skillIdx = joined.indexOf("Skills");
+  assert.ok(
+    cmdIdx > 0 && agentIdx > cmdIdx && skillIdx > agentIdx,
+    "per-type lines should be in command, agent, skill order",
+  );
+});
+
+test("postInstallSummary: shows 'Skipped M' and 'Failed K' counts in the body", () => {
+  const { log, successMessages } = makeFakeLog();
+  const a = makeItem({ id: "commands/a", type: "command", name: "a" });
+  const b = makeItem({ id: "commands/b", type: "command", name: "b" });
+  const c = makeItem({ id: "commands/c", type: "command", name: "c" });
+  const results: InstallResult[] = [
+    { status: "installed" },
+    { status: "skipped", reason: "collision-declined" },
+    { status: "failed", reason: "EACCES: permission denied" },
+  ];
+  postInstallSummary([a, b, c], results, "/abs/target", opencode, { log: log as never });
+  const joined = successMessages.join("\n");
+  assert.match(joined, /Installed 1 items to \/abs\/target/);
+  assert.match(joined, /Skipped 1/);
+  assert.match(joined, /Failed 1/);
+});
+
+test("postInstallSummary: calls log.error with a 'X item(s) failed — see above' message when at least one item failed", () => {
+  const { log, errorMessages } = makeFakeLog();
+  const a = makeItem({ id: "commands/a", type: "command", name: "a" });
+  const b = makeItem({ id: "commands/b", type: "command", name: "b" });
+  const results: InstallResult[] = [
+    { status: "installed" },
+    { status: "failed", reason: "EACCES: permission denied" },
+    { status: "failed", reason: "EPERM: operation not permitted" },
+  ];
+  postInstallSummary([a, b], results, "/abs/target", opencode, { log: log as never });
+  assert.equal(errorMessages.length, 1, "log.error should be called exactly once");
+  assert.match(errorMessages[0] ?? "", /2 item\(s\) failed — see above/);
+});
+
+test("postInstallSummary: when no item failed, does not call log.error", () => {
+  const { log, errorMessages } = makeFakeLog();
+  const a = makeItem({ id: "commands/a", type: "command", name: "a" });
+  const results: InstallResult[] = [{ status: "installed" }];
+  postInstallSummary([a], results, "/abs/target", opencode, { log: log as never });
+  assert.equal(errorMessages.length, 0, "log.error should not be called when no failures");
 });

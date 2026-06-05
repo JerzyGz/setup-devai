@@ -10,7 +10,29 @@ import * as prompts from "./core/prompts.js";
 import * as registry from "./core/registry.js";
 import type { ElementType, Item } from "./types.js";
 
-export async function main(): Promise<void> {
+export interface MainPrompts {
+  url: typeof prompts.url;
+  typeMenu: typeof prompts.typeMenu;
+  itemMultiSelect: typeof prompts.itemMultiSelect;
+  preInstallSummary: typeof prompts.preInstallSummary;
+  collisionPrompt: typeof prompts.collisionPrompt;
+  postInstallSummary: typeof prompts.postInstallSummary;
+}
+
+export interface MainDeps {
+  prompts?: MainPrompts;
+}
+
+export async function main(deps: MainDeps = {}): Promise<void> {
+  const p: MainPrompts = {
+    url: deps.prompts?.url ?? prompts.url,
+    typeMenu: deps.prompts?.typeMenu ?? prompts.typeMenu,
+    itemMultiSelect: deps.prompts?.itemMultiSelect ?? prompts.itemMultiSelect,
+    preInstallSummary: deps.prompts?.preInstallSummary ?? prompts.preInstallSummary,
+    collisionPrompt: deps.prompts?.collisionPrompt ?? prompts.collisionPrompt,
+    postInstallSummary: deps.prompts?.postInstallSummary ?? prompts.postInstallSummary,
+  };
+
   const tempDir = mkdtempSync(join(tmpdir(), "setup-devai-"));
 
   if (!git.commandExists("git")) {
@@ -52,16 +74,16 @@ export async function main(): Promise<void> {
     if (holdMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, holdMs));
     } else {
-      const registryUrl = await prompts.url();
+      const registryUrl = await p.url();
       await git.cloneShallow(registryUrl, tempDir);
       const items = registry.scan(tempDir, opencode);
       const selections = new Set<Item>();
       const priorByType = new Map<ElementType, Item[]>();
       while (true) {
-        const choice = await prompts.typeMenu(items, opencode);
+        const choice = await p.typeMenu(items, opencode);
         if (choice === "install") break;
         const prior = priorByType.get(choice) ?? [];
-        const picked = await prompts.itemMultiSelect(items, choice, opencode, prior);
+        const picked = await p.itemMultiSelect(items, choice, opencode, prior);
         for (const existing of selections) {
           if (existing.type === choice) selections.delete(existing);
         }
@@ -71,18 +93,21 @@ export async function main(): Promise<void> {
         priorByType.set(choice, picked);
       }
       process.stdout.write(`Selected ${selections.size} items\n`);
+      if (selections.size === 0) {
+        process.stdout.write("Nothing selected. Exiting.\n");
+        return;
+      }
       const cwd = process.cwd();
       const targetPath = resolve(cwd, opencode.install.baseDir);
       const collisions = install.collisionReport([...selections], opencode, cwd);
-      await prompts.preInstallSummary([...selections], collisions, targetPath, opencode);
+      await p.preInstallSummary([...selections], collisions, targetPath, opencode);
       const results = await install.installAll(
         [...selections],
         opencode,
         cwd,
-        (item, existingPath) => prompts.collisionPrompt(item, existingPath),
+        (item, existingPath) => p.collisionPrompt(item, existingPath),
       );
-      const installed = results.filter((r) => r.status === "installed").length;
-      process.stdout.write(`Installed ${installed} items\n`);
+      p.postInstallSummary([...selections], results, targetPath, opencode);
     }
     // further wizard steps land here in later slices
   } catch (err) {
@@ -91,7 +116,7 @@ export async function main(): Promise<void> {
       await new Promise(() => {});
       return;
     }
-    throw err;
+    process.exitCode = 1;
   } finally {
     cleanupSync(tempDir);
   }

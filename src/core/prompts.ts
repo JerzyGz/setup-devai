@@ -1,6 +1,6 @@
 import * as clack from "@clack/prompts";
 import type { AgentProfile, ElementType, Item } from "../types.js";
-import type { CollisionReport } from "./install.js";
+import type { CollisionReport, InstallResult } from "./install.js";
 
 const REGISTRY_URL_PLACEHOLDER = "https://github.com/you/your-registry";
 
@@ -216,4 +216,40 @@ export async function collisionPrompt(
   });
   if (deps.isCancel(result)) return null;
   return result;
+}
+
+export interface PostInstallSummaryDeps {
+  log?: typeof clack.log;
+}
+
+export function postInstallSummary(
+  items: Item[],
+  results: InstallResult[],
+  targetPath: string,
+  profile: AgentProfile,
+  deps: PostInstallSummaryDeps = {},
+): void {
+  const log = deps.log ?? clack.log;
+  const installed = results.filter((r) => r.status === "installed").length;
+  const skipped = results.filter((r) => r.status === "skipped").length;
+  const failed = results.filter((r) => r.status === "failed").length;
+  const installedByType: Record<ElementType, number> = { command: 0, agent: 0, skill: 0 };
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const result = results[i];
+    if (item && result?.status === "installed") {
+      installedByType[item.type] += 1;
+    }
+  }
+  const lines: string[] = [`Installed ${installed} items to ${targetPath}`];
+  for (const type of TYPE_ORDER) {
+    const count = installedByType[type];
+    if (count > 0) lines.push(`  ${count} ${profile.labels[type]}`);
+  }
+  lines.push(`Skipped ${skipped}`);
+  lines.push(`Failed ${failed}`);
+  log.success(lines.join("\n"));
+  if (failed > 0) {
+    log.error(`${failed} item(s) failed — see above`, { output: process.stderr });
+  }
 }
