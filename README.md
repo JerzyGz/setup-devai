@@ -52,6 +52,20 @@ Install target is `<CWD>/.opencode/{command,agent,skill}/...`. The CLI creates t
 | `--help`, `-h`    | Show help and exit.        |
 | `--version`, `-V` | Show the version and exit. |
 
+## Saved state
+
+To skip re-typing the registry URL on every run, the last successful URL is written to:
+
+```
+${XDG_DATA_HOME:-~/.local/share}/setup-devai/state.json
+```
+
+The file is created atomically (write a `.tmp` sibling, `chmod 0600`, rename over the target) and stores a single JSON object: `{ "lastUrl": "..." }`. On the next run, that value pre-fills the URL prompt.
+
+**Credentialed URLs are never persisted.** A URL whose `new URL()` parse has a non-empty `username` or `password` — i.e. `https://token@host/...` — is skipped with a one-line stderr warning, leaving the previous `state.json` untouched. SCP-style (`git@host:path`) and `ssh://` transports remain savable: they carry no `http(s)` userinfo, and any auth happens out-of-band via SSH.
+
+For private registries, configure a credential helper instead of embedding a token in the URL: `gh auth setup-git`, SSH keys in `~/.ssh/`, or a `git credential.helper` entry.
+
 ## Requirements
 
 - Node.js `>=22.0.0`

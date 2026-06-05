@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { mkdtempSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { opencode } from "./agents/opencode.js";
 import { makeCleanup } from "./core/cleanup.js";
@@ -10,6 +10,7 @@ import { HELP_TEXT } from "./core/help.js";
 import * as install from "./core/install.js";
 import * as prompts from "./core/prompts.js";
 import * as registry from "./core/registry.js";
+import * as state from "./core/state.js";
 import type { ElementType, Item } from "./types.js";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -23,8 +24,16 @@ export interface MainPrompts {
   postInstallSummary: typeof prompts.postInstallSummary;
 }
 
+export interface MainState {
+  readLastUrl: typeof state.readLastUrl;
+  saveLastUrl: typeof state.saveLastUrl;
+}
+
 export interface MainDeps {
   prompts?: MainPrompts;
+  state?: MainState;
+  homeDir?: string;
+  env?: NodeJS.ProcessEnv;
 }
 
 /**
@@ -65,6 +74,12 @@ export async function main(
     collisionPrompt: deps.prompts?.collisionPrompt ?? prompts.collisionPrompt,
     postInstallSummary: deps.prompts?.postInstallSummary ?? prompts.postInstallSummary,
   };
+  const s: MainState = {
+    readLastUrl: deps.state?.readLastUrl ?? state.readLastUrl,
+    saveLastUrl: deps.state?.saveLastUrl ?? state.saveLastUrl,
+  };
+  const homeDir = deps.homeDir ?? homedir();
+  const env = deps.env ?? process.env;
 
   const tempDir = mkdtempSync(join(tmpdir(), "setup-devai-"));
 
@@ -107,8 +122,10 @@ export async function main(
     if (holdMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, holdMs));
     } else {
-      const registryUrl = await p.url();
+      const defaultUrl = s.readLastUrl(homeDir, env);
+      const registryUrl = await p.url(defaultUrl);
       await git.cloneShallow(registryUrl, tempDir);
+      s.saveLastUrl(homeDir, env, registryUrl);
       const items = registry.scan(tempDir, opencode);
       const selections = new Set<Item>();
       const priorByType = new Map<ElementType, Item[]>();

@@ -31,7 +31,7 @@ function makeItem(partial: Partial<Item> & { id: string; type: Item["type"]; nam
 test("url: returns the trimmed text input from @clack/prompts.text", async () => {
   const fakeText = async (): Promise<string | symbol> => "  https://github.com/user/repo  ";
   const fakeIsCancel = (_v: unknown): _v is symbol => false;
-  const result = await url({ text: fakeText, isCancel: fakeIsCancel });
+  const result = await url(null, { text: fakeText, isCancel: fakeIsCancel });
   assert.equal(result, "https://github.com/user/repo");
 });
 
@@ -44,7 +44,7 @@ test("url: re-prompts when the user submits empty or whitespace-only input", asy
     return next as string | symbol;
   };
   const fakeIsCancel = (_v: unknown): _v is symbol => false;
-  const result = await url({ text: fakeText, isCancel: fakeIsCancel });
+  const result = await url(null, { text: fakeText, isCancel: fakeIsCancel });
   assert.equal(result, "https://github.com/x/y");
   assert.equal(
     calls,
@@ -57,7 +57,10 @@ test("url: throws 'User cancelled' when the user cancels the prompt", async () =
   const cancelSymbol = Symbol("clack:cancel");
   const fakeText = async (): Promise<string | symbol> => cancelSymbol;
   const fakeIsCancel = (v: unknown): v is symbol => v === cancelSymbol;
-  await assert.rejects(() => url({ text: fakeText, isCancel: fakeIsCancel }), /User cancelled/);
+  await assert.rejects(
+    () => url(null, { text: fakeText, isCancel: fakeIsCancel }),
+    /User cancelled/,
+  );
 });
 
 test("url: calls @clack/prompts.text with the locked placeholder", async () => {
@@ -70,8 +73,41 @@ test("url: calls @clack/prompts.text with the locked placeholder", async () => {
     return "https://github.com/x/y";
   };
   const fakeIsCancel = (_v: unknown): _v is symbol => false;
-  await url({ text: fakeText, isCancel: fakeIsCancel });
+  await url(null, { text: fakeText, isCancel: fakeIsCancel });
   assert.equal(capturedOpts?.placeholder, "https://github.com/you/your-registry");
+});
+
+test("url: when given a non-null defaultUrl, passes it through to text as defaultValue", async () => {
+  let capturedOpts: { message: string; placeholder?: string; defaultValue?: string } | undefined;
+  const fakeText = async (opts: {
+    message: string;
+    placeholder?: string;
+    defaultValue?: string;
+  }): Promise<string | symbol> => {
+    capturedOpts = opts;
+    return "https://github.com/x/y";
+  };
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  await url("https://github.com/me/my-registry.git", {
+    text: fakeText,
+    isCancel: fakeIsCancel,
+  });
+  assert.equal(capturedOpts?.defaultValue, "https://github.com/me/my-registry.git");
+});
+
+test("url: when given a null defaultUrl, does NOT pass a defaultValue to text", async () => {
+  let capturedOpts: { message: string; placeholder?: string; defaultValue?: string } | undefined;
+  const fakeText = async (opts: {
+    message: string;
+    placeholder?: string;
+    defaultValue?: string;
+  }): Promise<string | symbol> => {
+    capturedOpts = opts;
+    return "https://github.com/x/y";
+  };
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  await url(null, { text: fakeText, isCancel: fakeIsCancel });
+  assert.equal(capturedOpts?.defaultValue, undefined);
 });
 
 test("typeMenu: returns the value the user selects", async () => {

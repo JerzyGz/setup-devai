@@ -5,7 +5,11 @@ import type { CollisionReport, InstallResult } from "./install.js";
 const REGISTRY_URL_PLACEHOLDER = "https://github.com/you/your-registry";
 
 export interface UrlPromptDeps {
-  text: (opts: { message: string; placeholder?: string }) => Promise<string | symbol>;
+  text: (opts: {
+    message: string;
+    placeholder?: string;
+    defaultValue?: string;
+  }) => Promise<string | symbol>;
   isCancel: (value: unknown) => value is symbol;
 }
 
@@ -19,12 +23,19 @@ const defaultDeps: UrlPromptDeps = {
  *
  * Loops until the user submits a non-empty (after trim) value. Throws
  * `"User cancelled"` if the user cancels via Ctrl+C.
+ *
+ * @param defaultUrl - When non-null, shown as the `defaultValue` of
+ *   the prompt so the user can accept it by pressing Enter.
  */
-export async function url(deps: UrlPromptDeps = defaultDeps): Promise<string> {
+export async function url(
+  defaultUrl: string | null = null,
+  deps: UrlPromptDeps = defaultDeps,
+): Promise<string> {
   for (;;) {
     const value = await deps.text({
       message: "Registry URL",
       placeholder: REGISTRY_URL_PLACEHOLDER,
+      defaultValue: defaultUrl ?? undefined,
     });
     if (deps.isCancel(value)) {
       throw new Error("User cancelled");
