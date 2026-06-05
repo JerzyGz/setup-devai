@@ -1,6 +1,7 @@
 import * as clack from "@clack/prompts";
 import type { AgentProfile, ElementType, Item } from "../types.js";
 import type { CollisionReport, InstallResult } from "./install.js";
+import { customMultiselect, customSelect } from "./customPrompts.js";
 import type { LocalState } from "./sync.js";
 
 const REGISTRY_URL_PLACEHOLDER = "https://github.com/you/your-registry";
@@ -56,12 +57,12 @@ export async function url(
 type TypeMenuValue = ElementType | "install" | "__divider__";
 
 export interface TypeMenuDeps {
-  select: typeof clack.select;
+  select: typeof customSelect;
   isCancel: (value: unknown) => value is symbol;
 }
 
 const defaultTypeMenuDeps: TypeMenuDeps = {
-  select: clack.select,
+  select: customSelect,
   isCancel: clack.isCancel,
 };
 
@@ -116,12 +117,12 @@ export async function typeMenu(
 }
 
 export interface ItemMultiSelectDeps {
-  multiselect: typeof clack.multiselect;
+  multiselect: typeof customMultiselect;
   isCancel: (value: unknown) => value is symbol;
 }
 
 const defaultItemMultiSelectDeps: ItemMultiSelectDeps = {
-  multiselect: clack.multiselect,
+  multiselect: customMultiselect,
   isCancel: clack.isCancel,
 };
 
@@ -255,12 +256,12 @@ export async function preInstallSummary(
 export type CollisionChoice = "yes" | "no" | "yes-all" | "no-all";
 
 export interface CollisionPromptDeps {
-  select: typeof clack.select;
+  select: typeof customSelect;
   isCancel: (v: unknown) => v is symbol;
 }
 
 const defaultCollisionPromptDeps: CollisionPromptDeps = {
-  select: clack.select,
+  select: customSelect,
   isCancel: clack.isCancel,
 };
 
