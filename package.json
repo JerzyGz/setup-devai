@@ -20,6 +20,7 @@
     "test": "tsx --test 'tests/**/*.test.ts'",
     "test:unit": "tsx --test 'tests/unit/**/*.test.ts'",
     "test:integration": "tsx --test 'tests/integration/**/*.test.ts'",
+    "simulatePublish": "pnpm pack --pack-destination ~/.cache/setup-devai",
     "prepublishOnly": "pnpm run build && pnpm test"
   },
   "dependencies": {

@@ -3,8 +3,8 @@
   "compilerOptions": {
     "rootDir": "..",
     "noEmit": true,
-    "allowImportingTsExtensions": true,
+    "allowImportingTsExtensions": true
   },
   "include": ["./**/*.ts"],
-  "exclude": ["./fixtures/**/*"],
+  "exclude": ["./fixtures/**/*"]
 }
