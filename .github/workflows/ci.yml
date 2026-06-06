@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       os:
-        description: 'Plataformas a probar (excluye ubuntu)'
+        description: "Plataformas a probar (excluye ubuntu)"
         type: choice
         options:
           - macos-15
