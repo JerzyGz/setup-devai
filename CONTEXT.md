@@ -23,7 +23,7 @@ from. Valid shapes:
 ### `lastUrl`
 
 The persisted field in `${stateDir}/state.json` holding the most recent
-*successful* registry URL. Its value must always be a valid registry URL —
+_successful_ registry URL. Its value must always be a valid registry URL —
 any other shape is a rejection. The field is single-value: one URL, not a
 list, not per-project.
 
@@ -42,12 +42,12 @@ The act of refusing to accept a URL. On rejection, the wizard:
 
 Rejection reasons:
 
-| Code | Trigger | Human-readable |
-|------|---------|----------------|
-| `credentials` | http/https with userinfo | `URL contains embedded credentials` |
-| `file-url` | `file://` scheme | `URL is a local file path, not a remote registry` |
-| `malformed-url` | fails `new URL()` and is not SCP-style | `URL is malformed` |
-| `write-error` | fs failure (EACCES, ENOSPC, etc.) | `Could not write state file: <os error>` |
+| Code            | Trigger                                | Human-readable                                    |
+| --------------- | -------------------------------------- | ------------------------------------------------- |
+| `credentials`   | http/https with userinfo               | `URL contains embedded credentials`               |
+| `file-url`      | `file://` scheme                       | `URL is a local file path, not a remote registry` |
+| `malformed-url` | fails `new URL()` and is not SCP-style | `URL is malformed`                                |
+| `write-error`   | fs failure (EACCES, ENOSPC, etc.)      | `Could not write state file: <os error>`          |
 
 All rejection reasons abort the wizard. There is no soft-skip path.
 

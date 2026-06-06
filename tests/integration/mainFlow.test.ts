@@ -426,3 +426,91 @@ try {
     "validate should be called with the URL the user submitted",
   );
 });
+
+test("main flow: cloned repo with no agent folders prints the friendly message and exits 0 without prompting for type", async () => {
+  const source = mkdtempSync(join(tmpdir(), "setup-devai-empty-registry-src-"));
+  writeFileSync(join(source, "README.md"), "# Just a readme, no agent folders here\n");
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "test",
+    GIT_AUTHOR_EMAIL: "test@test",
+    GIT_COMMITTER_NAME: "test",
+    GIT_COMMITTER_EMAIL: "test@test",
+  };
+  spawnSync("git", ["init", "-q"], { cwd: source, env, stdio: "ignore" });
+  spawnSync("git", ["add", "-A"], { cwd: source, env, stdio: "ignore" });
+  const commit = spawnSync("git", ["commit", "-q", "-m", "empty fixture"], {
+    cwd: source,
+    env,
+    stdio: "ignore",
+  });
+  if (commit.status !== 0) {
+    throw new Error(
+      `git commit failed in empty-registry setup: ${commit.stderr?.toString() ?? ""}`,
+    );
+  }
+  const fixtureUrl = pathToFileURL(source).href;
+  const driver = `
+import { main } from "./src/index.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const installRoot = mkdtempSync(join(tmpdir(), "setup-devai-empty-flow-cwd-"));
+process.chdir(installRoot);
+
+const stubPrompts = {
+  url: async () => ${JSON.stringify(fixtureUrl)},
+  typeMenu: async () => {
+    process.stdout.write("CALL:typeMenu\\n");
+    return "install";
+  },
+  itemMultiSelect: async () => [],
+  preInstallSummary: async () => {},
+  collisionPrompt: async () => "yes-all",
+  postInstallSummary: () => {},
+};
+
+const stubState = {
+  readLastUrl: () => null,
+  saveLastUrl: () => {
+    process.stdout.write("CALL:saveLastUrl\\n");
+  },
+  validateRegistryUrl: () => {},
+};
+
+try {
+  await main({ prompts: stubPrompts, state: stubState });
+} finally {
+  rmSync(installRoot, { recursive: true, force: true });
+}
+`;
+  try {
+    const { result } = spawnDriver(driver);
+    const { code, signal, stdout, stderr } = await result;
+    assert.equal(
+      code,
+      0,
+      `expected exit code 0 (friendly empty-registry message), got code=${code} signal=${signal}\nstdout: ${stdout}\nstderr: ${stderr}`,
+    );
+    assert.match(
+      stdout,
+      new RegExp(
+        `the repository ${fixtureUrl.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")} doesn't have any configuration \\(skills, commands or agents\\)`,
+      ),
+      `expected the friendly empty-registry message in stdout, got: ${stdout}`,
+    );
+    assert.doesNotMatch(
+      stdout,
+      /CALL:typeMenu/,
+      `typeMenu should NOT be called when the cloned repo is empty, got: ${stdout}`,
+    );
+    assert.doesNotMatch(
+      stdout,
+      /CALL:saveLastUrl/,
+      `saveLastUrl should NOT be called when the cloned repo is empty (do not poison state with bad URL), got: ${stdout}`,
+    );
+  } finally {
+    rmSync(source, { recursive: true, force: true });
+  }
+});

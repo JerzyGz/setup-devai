@@ -3,7 +3,8 @@ import { mkdtempSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { opencode } from "./agents/opencode.js";
+import { OpenCodeFolders, opencode } from "./agents/opencode.js";
+import { hasAnyAgentFolder } from "./agents/empty-check.js";
 import { makeCleanup } from "./core/cleanup.js";
 import * as git from "./core/git.js";
 import { HELP_TEXT } from "./core/help.js";
@@ -137,6 +138,13 @@ export async function main(
       const registryUrl = await p.url(placeholderUrl);
       s.validateRegistryUrl(registryUrl);
       await git.cloneShallow(registryUrl, tempDir);
+      const folderNames = Object.values(OpenCodeFolders);
+      if (!hasAnyAgentFolder(tempDir, folderNames)) {
+        console.log(
+          `the repository ${registryUrl} doesn't have any configuration (skills, commands or agents)`,
+        );
+        return;
+      }
       s.saveLastUrl(homeDir, env, registryUrl);
       const items = registry.scan(tempDir, opencode);
       const cwd = process.cwd();

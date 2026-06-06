@@ -14,6 +14,7 @@ The natural place to stash a small piece of state is the user's home directory, 
 Saved state stores only the URL — not the resolved clone, the diff, the timestamps, or anything else.
 
 **Cross-platform path resolution:**
+
 - **Linux**: `${XDG_DATA_HOME:-~/.local/share}/setup-devai/state.json`
 - **macOS**: `${XDG_DATA_HOME:-~/Library/Application Support}/setup-devai/state.json`
 - **Windows**: `${XDG_DATA_HOME:-%APPDATA%}/setup-devai/state.json`
