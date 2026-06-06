@@ -33,23 +33,25 @@ const defaultDeps: UrlPromptDeps = {
  * Loops until the user submits a non-empty (after trim) value. Throws
  * `"User cancelled"` if the user cancels via Ctrl+C.
  *
- * @param defaultUrl - When non-null, shown as the `defaultValue` of
- *   the prompt so the user can accept it by pressing Enter.
+ * @param placeholderUrl - When non-null, shown as the `placeholder` of
+ *   the prompt — a dim hint inside the input that disappears as soon
+ *   as the user types. The user must type (or paste) a value to
+ *   submit; pressing Enter on an empty input is rejected.
  */
 export async function url(
-  defaultUrl: string | null = null,
+  placeholderUrl: string | null = null,
   deps: UrlPromptDeps = defaultDeps,
 ): Promise<string> {
   for (;;) {
     const value = await deps.text({
       message: "Registry URL",
-      placeholder: REGISTRY_URL_PLACEHOLDER,
-      defaultValue: defaultUrl ?? undefined,
+      placeholder: placeholderUrl ?? undefined,
     });
     if (deps.isCancel(value)) {
       throw new Error("User cancelled");
     }
     const trimmed = value.trim();
+    if (trimmed === REGISTRY_URL_PLACEHOLDER) continue;
     if (trimmed.length > 0) return trimmed;
   }
 }

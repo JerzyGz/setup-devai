@@ -11,14 +11,24 @@ The natural place to stash a small piece of state is the user's home directory, 
 
 ## Decision
 
-Saved state stores only the URL — not the resolved clone, the diff, the timestamps, or anything else. The file lives at `${XDG_DATA_HOME:-~/.local/share}/setup-devai/state.json`, written atomically (write a `state.json.tmp` sibling, `chmod 0600`, rename over the target) so a crash mid-write leaves the previous good file intact.
+Saved state stores only the URL — not the resolved clone, the diff, the timestamps, or anything else.
+
+**Cross-platform path resolution:**
+- **Linux**: `${XDG_DATA_HOME:-~/.local/share}/setup-devai/state.json`
+- **macOS**: `${XDG_DATA_HOME:-~/Library/Application Support}/setup-devai/state.json`
+- **Windows**: `${XDG_DATA_HOME:-%APPDATA%}/setup-devai/state.json`
+
+`XDG_DATA_HOME` is honored on all platforms when set and non-empty. Platform-specific defaults apply only when `XDG_DATA_HOME` is unset or empty.
+
+The file is written atomically (write a `state.json.tmp` sibling, `chmod 0600`, rename over the target) so a crash mid-write leaves the previous good file intact.
 
 Before writing, we parse the URL with `new URL()` and inspect the `username` and `password` components:
 
 - **Empty `username` and `password`** — the URL is plain (`https://github.com/org/registry.git`). Save it.
 - **Non-empty `username` or `password`** — the URL carries userinfo (e.g. `https://token@host/...`). **Do not save.** Write a one-line warning to stderr and leave the existing `state.json` untouched.
 - **`new URL()` rejects the input** — it is SCP-style (`git@host:path`) or otherwise unparseable. Treat as savable. The function is not policing the user's URL format; it is catching plaintext credentials embedded in the userinfo slot, and SCP-style URLs do not have one.
-- **Non-`http(s)` protocols** (`ssh://`, `git://`, `file://`) — likewise have no `http(s)` userinfo slot. Treat as savable.
+- **`file://` URLs** — local file paths are not valid registry URLs and are rejected (prevents temp directory paths from being saved).
+- **Other non-`http(s)` protocols** (`ssh://`, `git://`) — likewise have no `http(s)` userinfo slot. Treat as savable.
 
 This lives in `src/core/state.ts` as `hasCredentials(rawUrl)` and is the single gate that `saveLastUrl` consults before touching disk.
 

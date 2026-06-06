@@ -176,6 +176,27 @@ test("url: re-prompts when the user submits empty or whitespace-only input", asy
   );
 });
 
+test("url: re-prompts when the user submits the placeholder URL", async () => {
+  const responses: (string | symbol)[] = [
+    "https://github.com/you/your-registry",
+    "https://github.com/x/y",
+  ];
+  let calls = 0;
+  const fakeText = async (): Promise<string | symbol> => {
+    const next = responses[calls];
+    calls += 1;
+    return next as string | symbol;
+  };
+  const fakeIsCancel = (_v: unknown): _v is symbol => false;
+  const result = await url(null, { text: fakeText, isCancel: fakeIsCancel });
+  assert.equal(result, "https://github.com/x/y");
+  assert.equal(
+    calls,
+    2,
+    "text should have been called once for the placeholder plus once for the valid URL",
+  );
+});
+
 test("url: throws 'User cancelled' when the user cancels the prompt", async () => {
   const cancelSymbol = Symbol("clack:cancel");
   const fakeText = async (): Promise<string | symbol> => cancelSymbol;
@@ -186,7 +207,7 @@ test("url: throws 'User cancelled' when the user cancels the prompt", async () =
   );
 });
 
-test("url: calls @clack/prompts.text with the locked placeholder", async () => {
+test("url: does not pass a placeholder to @clack/prompts.text", async () => {
   let capturedOpts: { message: string; placeholder?: string } | undefined;
   const fakeText = async (opts: {
     message: string;
@@ -197,10 +218,10 @@ test("url: calls @clack/prompts.text with the locked placeholder", async () => {
   };
   const fakeIsCancel = (_v: unknown): _v is symbol => false;
   await url(null, { text: fakeText, isCancel: fakeIsCancel });
-  assert.equal(capturedOpts?.placeholder, "https://github.com/you/your-registry");
+  assert.equal(capturedOpts?.placeholder, undefined);
 });
 
-test("url: when given a non-null defaultUrl, passes it through to text as defaultValue", async () => {
+test("url: when given a non-null placeholderUrl, passes it through to text as placeholder", async () => {
   let capturedOpts: { message: string; placeholder?: string; defaultValue?: string } | undefined;
   const fakeText = async (opts: {
     message: string;
@@ -215,10 +236,11 @@ test("url: when given a non-null defaultUrl, passes it through to text as defaul
     text: fakeText,
     isCancel: fakeIsCancel,
   });
-  assert.equal(capturedOpts?.defaultValue, "https://github.com/me/my-registry.git");
+  assert.equal(capturedOpts?.placeholder, "https://github.com/me/my-registry.git");
+  assert.equal(capturedOpts?.defaultValue, undefined);
 });
 
-test("url: when given a null defaultUrl, does NOT pass a defaultValue to text", async () => {
+test("url: when given a null placeholderUrl, does NOT pass a placeholder to text", async () => {
   let capturedOpts: { message: string; placeholder?: string; defaultValue?: string } | undefined;
   const fakeText = async (opts: {
     message: string;
@@ -230,6 +252,7 @@ test("url: when given a null defaultUrl, does NOT pass a defaultValue to text", 
   };
   const fakeIsCancel = (_v: unknown): _v is symbol => false;
   await url(null, { text: fakeText, isCancel: fakeIsCancel });
+  assert.equal(capturedOpts?.placeholder, undefined);
   assert.equal(capturedOpts?.defaultValue, undefined);
 });
 

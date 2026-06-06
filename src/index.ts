@@ -28,6 +28,7 @@ export interface MainPrompts {
 export interface MainState {
   readLastUrl: typeof state.readLastUrl;
   saveLastUrl: typeof state.saveLastUrl;
+  validateRegistryUrl: typeof state.validateRegistryUrl;
 }
 
 export interface MainDeps {
@@ -86,6 +87,7 @@ export async function main(
   const s: MainState = {
     readLastUrl: deps.state?.readLastUrl ?? state.readLastUrl,
     saveLastUrl: deps.state?.saveLastUrl ?? state.saveLastUrl,
+    validateRegistryUrl: deps.state?.validateRegistryUrl ?? state.validateRegistryUrl,
   };
   const homeDir = deps.homeDir ?? homedir();
   const env = deps.env ?? process.env;
@@ -131,8 +133,9 @@ export async function main(
     if (holdMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, holdMs));
     } else {
-      const defaultUrl = s.readLastUrl(homeDir, env);
-      const registryUrl = await p.url(defaultUrl);
+      const placeholderUrl = s.readLastUrl(homeDir, env);
+      const registryUrl = await p.url(placeholderUrl);
+      s.validateRegistryUrl(registryUrl);
       await git.cloneShallow(registryUrl, tempDir);
       s.saveLastUrl(homeDir, env, registryUrl);
       const items = registry.scan(tempDir, opencode);

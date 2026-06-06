@@ -92,8 +92,14 @@ const stubPrompts = {
   postInstallSummary: ${postInstallBehavior},
 };
 
+const stubState = {
+  readLastUrl: () => null,
+  saveLastUrl: () => {},
+  validateRegistryUrl: () => {},
+};
+
 try {
-  await main({ prompts: stubPrompts });
+  await main({ prompts: stubPrompts, state: stubState });
 } finally {
   rmSync(installRoot, { recursive: true, force: true });
 }
@@ -151,8 +157,14 @@ const stubPrompts = {
   postInstallSummary: () => {},
 };
 
+const stubState = {
+  readLastUrl: () => null,
+  saveLastUrl: () => {},
+  validateRegistryUrl: () => {},
+};
+
 try {
-  await main({ prompts: stubPrompts });
+  await main({ prompts: stubPrompts, state: stubState });
 } finally {
   rmSync(installRoot, { recursive: true, force: true });
 }
@@ -273,8 +285,14 @@ const stubPrompts = {
   },
 };
 
+const stubState = {
+  readLastUrl: () => null,
+  saveLastUrl: () => {},
+  validateRegistryUrl: () => {},
+};
+
 try {
-  await main({ prompts: stubPrompts });
+  await main({ prompts: stubPrompts, state: stubState });
 } catch (err) {
   process.stderr.write("DRIVER_ERROR: " + (err instanceof Error ? err.stack : String(err)) + "\\n");
   process.exit(2);
@@ -350,4 +368,61 @@ try {
     rmSync(source, { recursive: true, force: true });
     rmSync(installRoot, { recursive: true, force: true });
   }
+});
+
+test("main flow: validateRegistryUrl is called between url() and cloneShallow, and a rejection aborts the wizard with exit code 1", async () => {
+  const submittedUrl = "https://token@github.com/foo/bar";
+  const driver = `
+import { main } from "./src/index.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const installRoot = mkdtempSync(join(tmpdir(), "setup-devai-validate-cwd-"));
+process.chdir(installRoot);
+
+const stubPrompts = {
+  url: async () => {
+    process.stdout.write("CALL:url\\n");
+    return ${JSON.stringify(submittedUrl)};
+  },
+  typeMenu: async () => "install",
+  itemMultiSelect: async () => [],
+  preInstallSummary: async () => {},
+  collisionPrompt: async () => "yes-all",
+  postInstallSummary: () => {},
+};
+
+const stubState = {
+  readLastUrl: () => null,
+  saveLastUrl: () => {},
+  validateRegistryUrl: (url) => {
+    process.stdout.write("CALL:validate:" + url + "\\n");
+    throw new Error("registry URL rejected (credentials): " + url);
+  },
+};
+
+try {
+  await main({ prompts: stubPrompts, state: stubState });
+} finally {
+  rmSync(installRoot, { recursive: true, force: true });
+}
+`;
+  const { result } = spawnDriver(driver);
+  const { code, signal, stdout, stderr } = await result;
+  assert.equal(
+    code,
+    1,
+    `expected exit code 1 from validation rejection, got code=${code} signal=${signal}\nstdout: ${stdout}\nstderr: ${stderr}`,
+  );
+  const urlIdx = stdout.indexOf("CALL:url");
+  const validateIdx = stdout.indexOf("CALL:validate:");
+  assert.ok(urlIdx >= 0, `expected 'CALL:url' marker in stdout, got: ${stdout}`);
+  assert.ok(validateIdx >= 0, `expected 'CALL:validate:' marker in stdout, got: ${stdout}`);
+  assert.ok(validateIdx > urlIdx, "validate must be called AFTER url");
+  assert.match(
+    stdout,
+    new RegExp(`CALL:validate:${submittedUrl.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}`),
+    "validate should be called with the URL the user submitted",
+  );
 });

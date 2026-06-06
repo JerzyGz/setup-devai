@@ -1,6 +1,26 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+export type RegistryUrlRejectionReason =
+  | "credentials"
+  | "file-url"
+  | "malformed-url"
+  | "write-error";
+
+export class RegistryUrlRejectedError extends Error {
+  readonly reason: RegistryUrlRejectionReason;
+  readonly url: string;
+  readonly cause?: unknown;
+
+  constructor(reason: RegistryUrlRejectionReason, url: string, cause?: unknown) {
+    super(`registry URL rejected (${reason}): ${url}`);
+    this.name = "RegistryUrlRejectedError";
+    this.reason = reason;
+    this.url = url;
+    this.cause = cause;
+  }
+}
+
 interface FsOps {
   mkdirSync: typeof mkdirSync;
   writeFileSync: typeof writeFileSync;
@@ -16,40 +36,58 @@ export function _setFsOpsForTesting(ops: Partial<FsOps>): void {
   fsOps = { ...defaultFsOps, ...ops };
 }
 
-const CREDENTIAL_SKIP_MESSAGE =
-  "Credentials detected in URL; not saved. Configure git credentials and use a plain URL to enable autofill.";
+const SCP_STYLE_RE = /^[\w.-]+@[\w.-]+:.+$/;
 
-export interface SaveLastUrlResult {
-  saved: boolean;
-  skippedReason?: "credentials" | "write-error";
+function humanReason(reason: RegistryUrlRejectionReason, osMessage?: string): string {
+  switch (reason) {
+    case "credentials":
+      return "URL contains embedded credentials";
+    case "file-url":
+      return "URL is a local file path, not a remote registry";
+    case "malformed-url":
+      return "URL is malformed";
+    case "write-error":
+      return `Could not write state file: ${osMessage ?? ""}`;
+  }
+}
+
+function writeRejectionBlock(
+  reason: RegistryUrlRejectionReason,
+  url: string,
+  osMessage?: string,
+): void {
+  const reasonText = humanReason(reason, osMessage);
+  process.stderr.write(
+    `setup-devai: registry URL rejected\n  reason: ${reasonText}\n  url:    ${url}\n`,
+  );
 }
 
 /**
- * Persist `rawUrl` to the state file if it has no embedded credentials.
+ * Persist `rawUrl` to the state file.
  *
- * - Skips (with a one-line stderr warning) when `hasCredentials(rawUrl)`
- *   is true.
- * - Skips (returning `{ saved: false, skippedReason: "write-error" }`)
- *   if the underlying `fs` calls fail — never throws.
- * - On success, writes atomically: `state.json.tmp` is created in the
- *   same directory, chmod'd to `0600`, then renamed over `state.json`.
- *   A crash mid-write leaves the previous good file intact.
+ * Pure write — does **not** validate `rawUrl`. The caller is expected
+ * to have run `validateRegistryUrl` first. On any `fs` failure
+ * (EACCES, ENOSPC, …) this function writes the 3-line rejection
+ * block to `process.stderr` and throws
+ * `RegistryUrlRejectedError` with `reason: "write-error"` and
+ * `cause` set to the underlying error. A successful write is
+ * atomic: `state.json.tmp` is created in the same directory,
+ * chmod'd to `0600`, then renamed over `state.json`. A crash
+ * mid-write leaves the previous good file intact.
  *
  * @param homeDir - Resolved value of `os.homedir()` for the current user
  * @param env - Environment to read `XDG_DATA_HOME` from
  * @param rawUrl - The URL the user successfully cloned from
+ * @param platform - Operating system platform (defaults to process.platform)
  */
 export function saveLastUrl(
   homeDir: string,
   env: NodeJS.ProcessEnv,
   rawUrl: string,
-): SaveLastUrlResult {
-  if (hasCredentials(rawUrl)) {
-    process.stderr.write(`${CREDENTIAL_SKIP_MESSAGE}\n`);
-    return { saved: false, skippedReason: "credentials" };
-  }
-  const dir = stateDir(homeDir, env);
-  const target = stateFile(homeDir, env);
+  platform: NodeJS.Platform = process.platform,
+): void {
+  const dir = stateDir(homeDir, env, platform);
+  const target = stateFile(homeDir, env, platform);
   const tmp = `${target}.tmp`;
   try {
     fsOps.mkdirSync(dir, { recursive: true });
@@ -57,9 +95,10 @@ export function saveLastUrl(
     fsOps.writeFileSync(tmp, payload, { mode: 0o600 });
     fsOps.chmodSync(tmp, 0o600);
     fsOps.renameSync(tmp, target);
-    return { saved: true };
-  } catch {
-    return { saved: false, skippedReason: "write-error" };
+  } catch (err) {
+    const osMessage = err instanceof Error ? err.message : String(err);
+    writeRejectionBlock("write-error", rawUrl, osMessage);
+    throw new RegistryUrlRejectedError("write-error", rawUrl, err);
   }
 }
 
@@ -69,9 +108,17 @@ export function saveLastUrl(
  * Returns `null` on any read error: missing file, malformed JSON,
  * non-object root, missing or non-string `lastUrl`, or permission
  * denied. Never throws.
+ *
+ * @param homeDir - Resolved value of `os.homedir()` for the current user
+ * @param env - Environment to read `XDG_DATA_HOME` from
+ * @param platform - Operating system platform (defaults to process.platform)
  */
-export function readLastUrl(homeDir: string, env: NodeJS.ProcessEnv): string | null {
-  const file = stateFile(homeDir, env);
+export function readLastUrl(
+  homeDir: string,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): string | null {
+  const file = stateFile(homeDir, env, platform);
   let raw: string;
   try {
     raw = fsOps.readFileSync(file, "utf8");
@@ -93,17 +140,33 @@ export function readLastUrl(homeDir: string, env: NodeJS.ProcessEnv): string | n
 /**
  * Compute the on-disk directory where the wizard's state file lives.
  *
- * The path is `${XDG_DATA_HOME:-<homeDir>/.local/share}/setup-devai`,
- * matching the XDG Base Directory specification.
+ * Platform-specific defaults when XDG_DATA_HOME is unset:
+ * - darwin:  `~/Library/Application Support/setup-devai`
+ * - win32:   `%APPDATA%/setup-devai`
+ * - linux:   `~/.local/share/setup-devai`
  *
  * @param homeDir - Resolved value of `os.homedir()` for the current user
  * @param env - Environment to read `XDG_DATA_HOME` from
+ * @param platform - Operating system platform (defaults to process.platform)
  * @returns Absolute path of the state directory
  */
-export function stateDir(homeDir: string, env: NodeJS.ProcessEnv): string {
+export function stateDir(
+  homeDir: string,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): string {
   const xdg = env.XDG_DATA_HOME;
-  const base = xdg && xdg.length > 0 ? xdg : join(homeDir, ".local", "share");
-  return join(base, "setup-devai");
+  if (xdg && xdg.length > 0) {
+    return join(xdg, "setup-devai");
+  }
+  switch (platform) {
+    case "darwin":
+      return join(homeDir, "Library", "Application Support", "setup-devai");
+    case "win32":
+      return join(env.APPDATA ?? homeDir, "setup-devai");
+    default:
+      return join(homeDir, ".local", "share", "setup-devai");
+  }
 }
 
 /**
@@ -111,35 +174,46 @@ export function stateDir(homeDir: string, env: NodeJS.ProcessEnv): string {
  *
  * @param homeDir - Resolved value of `os.homedir()` for the current user
  * @param env - Environment to read `XDG_DATA_HOME` from
+ * @param platform - Operating system platform (defaults to process.platform)
  * @returns Absolute path of `state.json`
  */
-export function stateFile(homeDir: string, env: NodeJS.ProcessEnv): string {
-  return join(stateDir(homeDir, env), "state.json");
+export function stateFile(
+  homeDir: string,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return join(stateDir(homeDir, env, platform), "state.json");
 }
 
 /**
- * Detect whether a URL carries credentials in its userinfo component.
+ * Validate that `rawUrl` is an acceptable registry URL.
  *
- * The `git` credential layer is the only place we want tokens or
- * passwords to live, so any URL that already embeds them is considered
- * unsafe to persist in saved state.
+ * Throws `RegistryUrlRejectedError` with a structured `reason` and
+ * `url` field for any of: embedded credentials in http(s) userinfo,
+ * `file://` scheme, or input that is neither a parseable URL nor
+ * SCP-style (`user@host:path`).
  *
- * Returns `false` for:
- * - SCP-style git transport (`git@host:path`) — `new URL` rejects it
- * - `ssh://` URLs — those are the SSH transport, not a credential layer
- * - Malformed input that `new URL` cannot parse
- * - Non-HTTP(S) protocols (e.g. `file:`, `git:`)
- *
- * Returns `true` only for `http:` / `https:` URLs whose `username` or
- * `password` component is non-empty.
+ * @param rawUrl - The URL string to validate
  */
-export function hasCredentials(rawUrl: string): boolean {
+function reject(reason: RegistryUrlRejectionReason, url: string): never {
+  writeRejectionBlock(reason, url);
+  throw new RegistryUrlRejectedError(reason, url);
+}
+
+export function validateRegistryUrl(rawUrl: string): void {
   let u: URL;
   try {
     u = new URL(rawUrl);
   } catch {
-    return false;
+    if (SCP_STYLE_RE.test(rawUrl)) return;
+    reject("malformed-url", rawUrl);
   }
-  if (u.protocol !== "http:" && u.protocol !== "https:") return false;
-  return u.username.length > 0 || u.password.length > 0;
+  if (u.protocol === "file:") {
+    reject("file-url", rawUrl);
+  }
+  if (u.protocol === "http:" || u.protocol === "https:") {
+    if (u.username.length > 0 || u.password.length > 0) {
+      reject("credentials", rawUrl);
+    }
+  }
 }
