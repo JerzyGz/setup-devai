@@ -3,6 +3,17 @@
   "version": "0.1.0",
   "description": "Interactive CLI that installs OpenCode commands, agents, and skills from a Git registry into your project.",
   "license": "MIT",
+  "keywords": [
+    "opencode",
+    "cli",
+    "devai",
+    "agents",
+    "skills",
+    "commands",
+    "installer",
+    "scaffold",
+    "ai"
+  ],
   "bin": {
     "setup-devai": "dist/index.js"
   },
