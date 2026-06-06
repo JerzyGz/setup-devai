@@ -1,7 +1,7 @@
 {
   "name": "setup-devai",
   "version": "0.1.0",
-  "description": "npx CLI that bootstraps an OpenCode project's commands, agents, and skills from a Git-hosted registry.",
+  "description": "Interactive CLI that installs OpenCode commands, agents, and skills from a Git registry into your project.",
   "license": "MIT",
   "bin": {
     "setup-devai": "dist/index.js"
