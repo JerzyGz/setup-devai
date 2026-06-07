@@ -75,6 +75,29 @@ function spawnMain(
   return { child, result, waitForTempDir };
 }
 
+/**
+ * Poll until `path` no longer exists, or `timeoutMs` elapses.
+ *
+ * Why this exists: the child runs `rmSync` (synchronous) in its
+ * signal/error/exit handlers and then calls `process.exit()`. The
+ * parent awaits `child.on("exit")` and would then call `existsSync`
+ * once. On loaded or cold CI runners the kernel/FS can briefly report
+ * the path as still present to the parent's `existsSync` (page cache,
+ * journaling, I/O contention from concurrently-spawned children), which
+ * made the post-exit cleanup assertions flaky. Polling bridges that
+ * visibility window.
+ */
+async function waitForRemoval(path: string, timeoutMs = 5000): Promise<boolean> {
+  const start = Date.now();
+  while (existsSync(path)) {
+    if (Date.now() - start > timeoutMs) {
+      return false;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return true;
+}
+
 test("main: allocates a temp dir under os.tmpdir() matching setup-devai-* and removes it on normal completion", async () => {
   const { result, waitForTempDir } = spawnMain({
     SETUP_DEVAI_TEST_HOLD_MS: "300",
@@ -98,8 +121,8 @@ test("main: allocates a temp dir under os.tmpdir() matching setup-devai-* and re
   assert.equal(signal, null);
 
   assert.equal(
-    existsSync(tempDir),
-    false,
+    await waitForRemoval(tempDir),
+    true,
     "temp dir should be removed after normal main() completion",
   );
 });
@@ -136,7 +159,7 @@ test("main: handles SIGINT by cleaning up the temp dir and exiting with code 130
     terminatedBySigint,
     `expected exit code 130 or SIGINT signal, got code=${code} signal=${signal}`,
   );
-  assert.equal(existsSync(tempDir), false);
+  assert.equal(await waitForRemoval(tempDir), true, "temp dir should be removed after SIGINT");
 });
 
 test("main: handles SIGTERM by cleaning up the temp dir and exiting with code 143", async () => {
@@ -155,7 +178,7 @@ test("main: handles SIGTERM by cleaning up the temp dir and exiting with code 14
     terminatedBySigterm,
     `expected exit code 143 or SIGTERM signal, got code=${code} signal=${signal}`,
   );
-  assert.equal(existsSync(tempDir), false);
+  assert.equal(await waitForRemoval(tempDir), true, "temp dir should be removed after SIGTERM");
 });
 
 test("main: handles an uncaught exception by cleaning up, printing the error, and exiting with code 1", async () => {
@@ -174,7 +197,11 @@ await main();`;
 
   const { code, stderr } = await result;
   assert.equal(code, 1, `expected exit code 1, got code=${code}`);
-  assert.equal(existsSync(tempDir), false);
+  assert.equal(
+    await waitForRemoval(tempDir),
+    true,
+    "temp dir should be removed after uncaught exception",
+  );
   assert.ok(
     stderr.includes("boom-uncaught"),
     `expected error message in stderr, got: ${JSON.stringify(stderr)}`,
@@ -197,7 +224,11 @@ await main();`;
 
   const { code, stderr } = await result;
   assert.equal(code, 1, `expected exit code 1, got code=${code}`);
-  assert.equal(existsSync(tempDir), false);
+  assert.equal(
+    await waitForRemoval(tempDir),
+    true,
+    "temp dir should be removed after unhandled rejection",
+  );
   assert.ok(
     stderr.includes("boom-unhandled"),
     `expected error message in stderr, got: ${JSON.stringify(stderr)}`,
@@ -220,5 +251,9 @@ await main();`;
 
   const { code } = await result;
   assert.equal(code, 1, `expected exit code 1, got code=${code}`);
-  assert.equal(existsSync(tempDir), false);
+  assert.equal(
+    await waitForRemoval(tempDir),
+    true,
+    "temp dir should be removed after process.exit(1) from within main()",
+  );
 });
