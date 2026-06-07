@@ -14,7 +14,7 @@ It downloads the registry, reads each item, and checks it against your project. 
 ## Quick start
 
 ```sh
-npx setup-devai
+npx setup-devai@latest
 ```
 
 You'll be asked for the registry's Git URL, then the wizard takes over.

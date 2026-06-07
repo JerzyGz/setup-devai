@@ -1,6 +1,6 @@
 {
   "name": "setup-devai",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Interactive CLI that installs OpenCode commands, agents, and skills from a Git registry into your project.",
   "keywords": [
     "agents",

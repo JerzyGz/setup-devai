@@ -135,6 +135,7 @@ export async function main(
     if (holdMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, holdMs));
     } else {
+      process.stdout.write(`version: v${version}\n`);
       const placeholderUrl = s.readLastUrl(homeDir, env);
       const registryUrl = await p.url(placeholderUrl);
       s.validateRegistryUrl(registryUrl);
