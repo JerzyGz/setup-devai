@@ -43,6 +43,9 @@ jobs:
         os: ${{ inputs.os == 'both' && fromJSON('["macos-15", "windows-2022"]') || fromJSON(format('["{0}"]', inputs.os)) }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          # This prevents Windows runners from forcing CRLF during checkout
+          autocrlf: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
