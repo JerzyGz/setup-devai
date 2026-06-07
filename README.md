@@ -45,7 +45,7 @@ requires:
 
 `requires` is optional. Use it to list other items (as `type/name`) that should be installed alongside this one for it to work.
 
-Selected items are copied into `.opencode/command/`, `.opencode/agent/`, or `.opencode/skill/` inside the folder where you ran the command. Any missing folders are created for you.
+Selected items are copied into `.opencode/commands/`, `.opencode/agents/`, or `.opencode/skills/` inside the folder where you ran the command. Any missing folders are created for you.
 
 ## Flags
 

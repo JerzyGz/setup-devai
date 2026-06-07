@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { OpenCodeFolders, opencode } from "./agents/opencode.js";
 import { hasAnyAgentFolder } from "./agents/empty-check.js";
 import { makeCleanup } from "./core/cleanup.js";
@@ -197,6 +198,11 @@ export async function main(
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  void main();
+const entry = process.argv[1];
+if (entry) {
+  const entryReal = realpathSync(fileURLToPath(import.meta.url));
+  const argvReal = realpathSync(entry);
+  if (entryReal === argvReal) {
+    void main();
+  }
 }

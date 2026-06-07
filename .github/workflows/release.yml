@@ -12,8 +12,6 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-24.04
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -22,13 +20,27 @@ jobs:
           node-version: 22
           cache: pnpm
           package-manager-cache: false
-          registry-url: https://registry.npmjs.org/
-      - name: Verify NPM_TOKEN is set
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::error::NPM_TOKEN secret is empty or missing in repo settings"
-            exit 1
-          fi
-          echo "NPM_TOKEN length: ${#NODE_AUTH_TOKEN}"
       - run: pnpm install --frozen-lockfile
+      - name: Check version changes
+        id: check
+        run: |
+          CURRENT_VERSION=$(jq -r .version package.json)
+          PREVIOUS_TAG=$(git tag --sort=-v:refname | sed -n '2p')
+          PREVIOUS_TAG=${PREVIOUS_TAG:-v0.0.0}
+          echo "Previous tag: $PREVIOUS_TAG"
+          PREVIOUS_VERSION=${PREVIOUS_TAG#v}
+
+          echo "Current version: $CURRENT_VERSION"
+          echo "Previous version: $PREVIOUS_VERSION"
+
+          if [ "$PREVIOUS_VERSION" != "$CURRENT_VERSION" ]; then
+            echo "version_changed=true" >> $GITHUB_OUTPUT
+            echo "new_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "Version changed from $PREVIOUS_VERSION to $CURRENT_VERSION"
+          else
+            echo "version_changed=false" >> $GITHUB_OUTPUT
+            echo "Version unchanged"
+          fi
+      # pnpm use token OIDC automatically  --provenance
       - run: pnpm publish --provenance --access public --no-git-checks
+        if: steps.check.outputs.version_changed == 'true'
