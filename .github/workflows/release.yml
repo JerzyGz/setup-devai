@@ -21,6 +21,13 @@ jobs:
           cache: pnpm
           package-manager-cache: false
           registry-url: https://registry.npmjs.org/
+      - name: Verify NPM_TOKEN is set
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::error::NPM_TOKEN secret is empty or missing in repo settings"
+            exit 1
+          fi
+          echo "NPM_TOKEN length: ${#NODE_AUTH_TOKEN}"
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm run build
