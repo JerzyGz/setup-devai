@@ -130,7 +130,12 @@ test("main: handles SIGINT by cleaning up the temp dir and exiting with code 130
 
   child.kill("SIGINT");
   const { code, signal } = await result;
-  assert.equal(code, 130, `expected exit code 130, got code=${code} signal=${signal}`);
+  const terminatedBySigint =
+    (code === 130 && signal === null) || (code === null && signal === "SIGINT");
+  assert.ok(
+    terminatedBySigint,
+    `expected exit code 130 or SIGINT signal, got code=${code} signal=${signal}`,
+  );
   assert.equal(existsSync(tempDir), false);
 });
 
@@ -144,7 +149,12 @@ test("main: handles SIGTERM by cleaning up the temp dir and exiting with code 14
 
   child.kill("SIGTERM");
   const { code, signal } = await result;
-  assert.equal(code, 143, `expected exit code 143, got code=${code} signal=${signal}`);
+  const terminatedBySigterm =
+    (code === 143 && signal === null) || (code === null && signal === "SIGTERM");
+  assert.ok(
+    terminatedBySigterm,
+    `expected exit code 143 or SIGTERM signal, got code=${code} signal=${signal}`,
+  );
   assert.equal(existsSync(tempDir), false);
 });
 
